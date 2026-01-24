@@ -8,6 +8,8 @@
 2. Commit with a descriptive message
 3. Push to origin/main
 
+**Commit Message Format:** Use regular commit messages without Co-Authored-By attribution.
+
 This ensures all changes are tracked in version control automatically without requiring explicit user requests.
 
 ---

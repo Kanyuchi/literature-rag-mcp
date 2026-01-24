@@ -1,5 +1,17 @@
 # Literature Review RAG - Claude Context
 
+## Workflow Rules
+
+### Auto-Commit Policy
+**IMPORTANT:** After making any file changes (edits, additions, or deletions), Claude MUST:
+1. Stage the changed files with `git add <specific-files>`
+2. Commit with a descriptive message
+3. Push to origin/main
+
+This ensures all changes are tracked in version control automatically without requiring explicit user requests.
+
+---
+
 ## Project Overview
 Academic literature RAG system for German regional economic transitions research. Contains 13,578 chunks from 83 papers indexed with BAAI/bge-base-en-v1.5 embeddings in ChromaDB.
 

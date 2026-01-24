@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "literature-rag": {
+      "command": "./venv/bin/python",
+      "args": ["-m", "literature_rag.mcp_server"],
+      "env": {
+        "PYTHONPATH": "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api",
+        "INDICES_PATH": "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/indices",
+        "CONFIG_PATH": "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/config/literature_config.yaml"
+      }
+    }
+  }
+}

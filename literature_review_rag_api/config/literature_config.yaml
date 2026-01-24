@@ -1,0 +1,297 @@
+# ============================================================================
+# LITERATURE REVIEW RAG CONFIGURATION
+# ============================================================================
+# Starter configuration file for academic literature review RAG system
+# Adapted from the personality RAG system (100% MBTI accuracy, 15ms queries)
+#
+# This file can be imported and customized without changing code.
+# All settings are overridable via environment variables.
+
+# ----------------------------------------------------------------------------
+# DATA SOURCES
+# ----------------------------------------------------------------------------
+data:
+  # Path to your academic PDFs (organized by phase/topic)
+  pdf_path: "/Users/fadzie/Desktop/lit_rag"
+
+  # Auto-detect phase structure from folders
+  auto_detect_structure: true
+
+  # Expected phases (adjust if your structure differs)
+  phases:
+    - name: "Phase 1"
+      full_name: "Theoretical Foundation"
+      description: "Core theoretical frameworks and conceptual foundations"
+
+    - name: "Phase 2"
+      full_name: "Sectoral & Business Transitions"
+      description: "Business formation, deindustrialization, COVID impact"
+
+    - name: "Phase 3"
+      full_name: "Context & Case Studies"
+      description: "Regional case studies, policy analysis, specific contexts"
+
+    - name: "Phase 4"
+      full_name: "Methodology"
+      description: "Research methods, data approaches, software tools"
+
+# ----------------------------------------------------------------------------
+# PDF EXTRACTION
+# ----------------------------------------------------------------------------
+extraction:
+  # Section detection strategy
+  use_section_detection: true
+  section_confidence_threshold: 0.7  # 70% sections must be detected to use section-aware chunking
+
+  # Sections to extract (for section-aware chunking)
+  extract_sections:
+    - abstract
+    - introduction
+    - methods
+    - results
+    - discussion
+    - conclusion
+
+  # Metadata to extract from each PDF
+  extract_metadata:
+    - title         # From PDF metadata or first page
+    - authors       # From PDF metadata or parsing
+    - year          # From metadata or filename
+    - keywords      # From abstract/keywords section
+    - doi           # If available
+    - abstract      # Full abstract text
+
+  # Fallback to simple extraction if section detection fails
+  fallback_to_full_text: true
+
+  # PDF processing settings
+  max_pages_per_pdf: null  # null = no limit, or set number to limit
+  skip_references: true    # Skip reference/bibliography sections
+  extract_first_n_pages_for_metadata: 3  # Extract metadata from first 3 pages
+
+# ----------------------------------------------------------------------------
+# CHUNKING STRATEGY
+# ----------------------------------------------------------------------------
+chunking:
+  # Primary strategy: "section_aware", "fixed_size", or "hybrid"
+  strategy: "section_aware"
+
+  # Section-specific chunk sizes (used when section detection succeeds)
+  section_sizes:
+    abstract: 1500      # Keep abstracts relatively intact
+    introduction: 2000
+    methods: 2000
+    results: 2000
+    discussion: 2000
+    conclusion: 1500
+
+  # Overlap for section chunks
+  section_overlap: 300
+
+  # Fallback fixed-size settings (proven in personality RAG)
+  # Used when section detection fails or strategy is "fixed_size"
+  fixed_chunk_size: 1000
+  fixed_chunk_overlap: 200
+
+  # Hybrid strategy (try section-aware first, fallback to fixed-size)
+  hybrid_min_confidence: 0.7  # Min confidence to use section-aware
+
+# ----------------------------------------------------------------------------
+# EMBEDDING & INDEXING
+# ----------------------------------------------------------------------------
+embedding:
+  # Embedding model (same as personality RAG - proven 100% accuracy)
+  model: "BAAI/bge-base-en-v1.5"
+  dimension: 768
+  normalize: true
+
+  # Device selection
+  device: "auto"  # Options: "auto", "cuda", "cpu"
+
+  # Batch size for indexing (adjust based on available memory)
+  batch_size: 32
+
+  # Model cache directory
+  cache_folder: null  # null = use default, or specify path
+
+# ----------------------------------------------------------------------------
+# SEARCH & RETRIEVAL
+# ----------------------------------------------------------------------------
+retrieval:
+  # Default number of results to return
+  default_n_results: 5
+
+  # Search strategy (keep it simple like improved personality RAG)
+  use_hybrid: false       # Start simple: vector-only search
+  use_reranking: false    # Can add later if needed
+
+  # Query expansion (academic term normalization)
+  expand_queries: true
+  max_expansions: 2       # Maximum number of term expansions per query
+
+  # Distance metric for similarity search
+  distance_metric: "cosine"  # Options: "cosine", "euclidean", "dot"
+
+# ----------------------------------------------------------------------------
+# QUERY NORMALIZATION (KEY PATTERN FROM PERSONALITY RAG)
+# ----------------------------------------------------------------------------
+# This is the "secret sauce" - explicit term normalization like MBTI codes
+normalization:
+  # Enable academic term normalization
+  enable: true
+
+  # Custom term mappings (add your domain-specific terms here)
+  term_maps:
+    # Regional terms (German focus)
+    regional:
+      - ["ruhrgebiet", "ruhr valley", "ruhr region", "ruhr area", "ruhr metropolis"]
+      - ["nrw", "north rhine-westphalia", "nordrhein-westfalen"]
+      - ["rhine-ruhr", "rhine ruhr", "rhine-ruhr metropolitan"]
+
+    # Economic concepts
+    economic:
+      - ["deindustrialization", "structural change", "industrial decline", "post-industrial transition"]
+      - ["tertiarization", "service sector growth", "shift to services", "service economy"]
+      - ["business formation", "entrepreneurship", "startup creation", "new ventures", "firm creation"]
+      - ["economic resilience", "regional resilience", "adaptive capacity"]
+
+    # Institutional concepts
+    institutional:
+      - ["voc", "varieties of capitalism", "institutional framework"]
+      - ["lme", "liberal market economy", "liberal market economies"]
+      - ["cme", "coordinated market economy", "coordinated market economies"]
+      - ["institutional economics", "institutional theory", "new institutional economics"]
+
+    # Methodology terms
+    methodology:
+      - ["spatial panel", "spatial econometrics", "spatial panel data", "spatial regression"]
+      - ["mixed methods", "qualitative and quantitative", "multi-method", "triangulation"]
+      - ["inkar data", "inkar indicators", "regional indicators", "bbsr data"]
+      - ["case study", "case studies", "comparative case"]
+
+    # Regional policy terms
+    policy:
+      - ["just transition", "fair transition", "equitable transition", "social transition"]
+      - ["regional policy", "regional development policy", "structural policy"]
+      - ["eu funds", "european funds", "structural funds", "cohesion policy"]
+
+# ----------------------------------------------------------------------------
+# FILTERS
+# ----------------------------------------------------------------------------
+filters:
+  # Enable various filter dimensions
+  enable_phase_filter: true
+  enable_topic_filter: true
+  enable_year_filter: true
+  enable_methodology_filter: true
+  enable_geographic_filter: true
+  enable_research_type_filter: true
+
+  # Valid values for filters (auto-detected from folder structure)
+  # You can customize these if your structure differs
+  valid_research_types:
+    - empirical
+    - theoretical
+    - case_study
+    - mixed_methods
+    - literature_review
+    - methodology
+
+  valid_geographic_focus:
+    - Germany
+    - Ruhr Valley
+    - North Rhine-Westphalia
+    - Europe
+    - Global
+    - Comparative
+
+# ----------------------------------------------------------------------------
+# API CONFIGURATION
+# ----------------------------------------------------------------------------
+api:
+  # Server settings
+  host: "0.0.0.0"
+  port: 8001  # Different from personality RAG (8000)
+
+  # CORS settings (for web access)
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+  cors_credentials: false
+  cors_methods: ["GET", "POST", "OPTIONS"]
+  cors_headers: ["Authorization", "Content-Type", "X-API-Key"]
+
+  # Optional authentication
+  require_api_key: false  # Disabled for local development
+  api_key: null  # Set via environment variable: API_KEY=your-key
+
+  # Rate limiting (requests per window)
+  rate_limit:
+    enabled: false
+    requests: 100
+    window_seconds: 60
+
+  # API documentation
+  title: "Literature Review RAG API"
+  description: "Academic literature search system for German regional economic transitions"
+  version: "1.0.0"
+
+# ----------------------------------------------------------------------------
+# STORAGE
+# ----------------------------------------------------------------------------
+storage:
+  # Indices storage path (absolute path for MCP server compatibility)
+  indices_path: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/indices"
+
+  # ChromaDB collection name
+  collection_name: "literature_review_chunks"
+
+  # Metadata caching for faster startup
+  cache_metadata: true
+  metadata_cache_path: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/indices/metadata_cache.pkl"
+
+  # ChromaDB settings
+  chroma_settings:
+    anonymized_telemetry: false
+    allow_reset: true
+
+# ----------------------------------------------------------------------------
+# ADVANCED FEATURES
+# ----------------------------------------------------------------------------
+advanced:
+  # Citation network analysis (future feature)
+  build_citation_network: false
+
+  # Research gap detection
+  enable_gap_analysis: true
+  gap_analysis:
+    min_topic_coverage: 3  # Min papers per topic to consider "covered"
+    methodology_diversity_threshold: 2  # Min methodologies per phase
+
+  # External enrichment (Semantic Scholar API, etc.)
+  use_external_enrichment: false
+  semantic_scholar_api_key: null
+
+  # Logging
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_file: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/logs/literature_rag.log"
+
+  # Performance
+  parallel_processing: true
+  max_workers: 4  # Number of parallel PDF extraction workers
+
+# ----------------------------------------------------------------------------
+# CUSTOM SETTINGS
+# ----------------------------------------------------------------------------
+# Add your custom settings below
+custom:
+  # Example: thesis-specific metadata
+  thesis_title: "Regional Economic Transitions in Post-Industrial Germany"
+  research_focus: "Institutional Economics and Regional Development"
+
+  # Example: favorite queries for quick testing
+  test_queries:
+    - "business formation in Ruhr Valley"
+    - "spatial panel data methods"
+    - "varieties of capitalism Germany"
+    - "COVID-19 impact on manufacturing"

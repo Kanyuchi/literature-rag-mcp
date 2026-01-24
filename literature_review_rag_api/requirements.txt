@@ -1,0 +1,36 @@
+# ============================================================================
+# Literature Review RAG System - Dependencies
+# ============================================================================
+# Adapted from personality RAG (100% MBTI accuracy, 15ms queries)
+
+# Core RAG dependencies (same as personality RAG - proven)
+# Using specific versions to avoid compatibility issues
+numpy<2.0.0
+chromadb==0.4.24
+langchain-huggingface>=0.1.0
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# FastAPI server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.6
+
+# Configuration
+pyyaml>=6.0
+
+# PDF processing (academic-specific)
+pymupdf>=1.23.0  # PyMuPDF for better section detection
+pypdf>=3.17.0
+
+# LangChain utilities
+langchain>=0.1.0
+langchain-community>=0.0.10
+
+# Text processing
+tqdm>=4.65.0  # Progress bars
+
+# Utilities
+python-dotenv>=1.0.0

@@ -2,6 +2,8 @@
 
 MCP server for academic literature RAG system focused on German regional economic transitions research. Integrates with Claude Desktop and Claude Code.
 
+> **Want to use this for your own research?** See the [Replication Guide](REPLICATION_GUIDE.md) for step-by-step instructions to adapt this system to your domain.
+
 ## Features
 - **13,578 indexed chunks** from 83 academic papers
 - **Semantic search** using BAAI/bge-base-en-v1.5 embeddings

@@ -235,6 +235,267 @@ async def root():
     }
 
 
+@app.get("/api/stats")
+async def get_stats():
+    """
+    Get collection statistics for the webapp dashboard.
+
+    Returns total papers, chunks, phases, topics, and year range.
+    """
+    check_rag_ready()
+
+    try:
+        stats = rag_system.get_stats()
+
+        return {
+            "total_papers": stats.get("total_documents", 0),
+            "total_chunks": stats.get("total_chunks", 0),
+            "phases": stats.get("papers_by_phase", {}),
+            "topics": stats.get("papers_by_topic", {}),
+            "year_range": {
+                "min": stats.get("year_range", {}).get("min", 0),
+                "max": stats.get("year_range", {}).get("max", 0)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Stats retrieval failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Stats retrieval failed: {str(e)}"
+        )
+
+
+@app.get("/api/papers")
+async def api_list_papers(
+    phase_filter: str = None,
+    topic_filter: str = None,
+    limit: int = 100
+):
+    """
+    List papers for the webapp (simplified format).
+    """
+    check_rag_ready()
+
+    try:
+        all_data = rag_system.collection.get(include=["metadatas"])
+
+        papers_dict = {}
+        for metadata in all_data["metadatas"]:
+            doc_id = metadata.get("doc_id")
+            if doc_id and doc_id not in papers_dict:
+                if phase_filter and metadata.get("phase") != phase_filter:
+                    continue
+                if topic_filter and metadata.get("topic_category") != topic_filter:
+                    continue
+
+                papers_dict[doc_id] = {
+                    "doc_id": doc_id,
+                    "title": metadata.get("title", "Untitled"),
+                    "authors": metadata.get("authors"),
+                    "year": metadata.get("year"),
+                    "phase": metadata.get("phase"),
+                    "topic": metadata.get("topic_category"),
+                    "source": metadata.get("filename", "")
+                }
+
+                if len(papers_dict) >= limit:
+                    break
+
+        return {
+            "total": len(papers_dict),
+            "papers": list(papers_dict.values())
+        }
+    except Exception as e:
+        logger.error(f"API list papers failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/search")
+async def api_semantic_search(
+    query: str,
+    n_results: int = 10,
+    phase_filter: str = None,
+    topic_filter: str = None,
+    year_min: int = None,
+    year_max: int = None
+):
+    """
+    Semantic search endpoint for the webapp.
+    """
+    check_rag_ready()
+
+    try:
+        filters = {}
+        if phase_filter:
+            filters["phase_filter"] = phase_filter
+        if topic_filter:
+            filters["topic_filter"] = topic_filter
+        if year_min:
+            filters["year_min"] = year_min
+        if year_max:
+            filters["year_max"] = year_max
+
+        results = rag_system.query(
+            question=query,
+            n_results=n_results,
+            **filters
+        )
+
+        search_results = []
+        for i in range(len(results["documents"][0])):
+            metadata = results["metadatas"][0][i]
+            distance = results["distances"][0][i]
+            score = 1 - distance
+
+            search_results.append({
+                "doc_id": metadata.get("doc_id"),
+                "title": metadata.get("title", "Untitled"),
+                "authors": metadata.get("authors"),
+                "year": metadata.get("year"),
+                "phase": metadata.get("phase"),
+                "topic": metadata.get("topic_category"),
+                "chunk_text": results["documents"][0][i],
+                "relevance_score": round(score, 4)
+            })
+
+        return search_results
+    except Exception as e:
+        logger.error(f"API search failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/answer")
+async def api_answer_with_citations(
+    question: str,
+    n_sources: int = 5,
+    phase_filter: str = None,
+    topic_filter: str = None
+):
+    """
+    Get answer sources with citations for the chat interface.
+    """
+    check_rag_ready()
+
+    try:
+        filters = {}
+        if phase_filter:
+            filters["phase_filter"] = phase_filter
+        if topic_filter:
+            filters["topic_filter"] = topic_filter
+
+        results = rag_system.query(
+            question=question,
+            n_results=n_sources,
+            **filters
+        )
+
+        sources = []
+        bibliography = []
+        for i in range(len(results["documents"][0])):
+            metadata = results["metadatas"][0][i]
+
+            citation = {
+                "doc_id": metadata.get("doc_id"),
+                "title": metadata.get("title", "Untitled"),
+                "authors": metadata.get("authors"),
+                "year": metadata.get("year"),
+                "chunk_text": results["documents"][0][i]
+            }
+            sources.append(citation)
+
+            # Build bibliography entry
+            authors = metadata.get("authors", "Unknown")
+            year = metadata.get("year", "n.d.")
+            title = metadata.get("title", "Untitled")
+            bibliography.append(f"{authors} ({year}). {title}")
+
+        return {
+            "sources": sources,
+            "bibliography": bibliography,
+            "suggested_structure": [
+                f"Based on {len(sources)} relevant sources from the literature collection:",
+                "The research addresses this topic through multiple perspectives.",
+                "Key findings from the literature include relevant insights on your question.",
+                "For detailed analysis, please review the cited sources below."
+            ]
+        }
+    except Exception as e:
+        logger.error(f"API answer failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/related")
+async def api_find_related(
+    paper_id: str,
+    n_results: int = 5
+):
+    """
+    Find related papers by embedding similarity.
+    """
+    check_rag_ready()
+
+    try:
+        results = rag_system.find_related_papers(
+            paper_id=paper_id,
+            n_results=n_results
+        )
+
+        related_papers = []
+        for i in range(len(results["documents"][0])):
+            metadata = results["metadatas"][0][i]
+            related_papers.append({
+                "doc_id": metadata.get("doc_id"),
+                "title": metadata.get("title", "Untitled"),
+                "authors": metadata.get("authors"),
+                "year": metadata.get("year"),
+                "phase": metadata.get("phase"),
+                "topic": metadata.get("topic_category")
+            })
+
+        return {
+            "source_paper_id": paper_id,
+            "related_papers": related_papers
+        }
+    except Exception as e:
+        logger.error(f"API related failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.post("/api/synthesis")
+async def api_synthesis_query(request: SynthesisRequest):
+    """
+    Multi-topic synthesis query for the webapp.
+    """
+    check_rag_ready()
+
+    try:
+        results = rag_system.synthesis_query(
+            question=request.query,
+            topics=request.topics,
+            n_per_topic=request.n_per_topic
+        )
+
+        return results
+    except Exception as e:
+        logger.error(f"API synthesis failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint with system statistics."""

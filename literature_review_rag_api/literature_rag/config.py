@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8001, env="API_PORT")
     api_key: Optional[str] = Field(default=None, env="API_KEY")
 
+    # LLM API Keys
+    groq_api_key: Optional[str] = Field(default=None, env="GROQ_API_KEY")
+
     # Device
     device: str = Field(default="auto", env="DEVICE")
 
@@ -167,6 +170,16 @@ class StorageConfig:
 
 
 @dataclass
+class LLMConfig:
+    """LLM configuration for generating responses."""
+    provider: str = "groq"
+    model: str = "llama-3.3-70b-versatile"
+    temperature: float = 0.1
+    max_tokens: int = 2048
+    groq_api_key: Optional[str] = None
+
+
+@dataclass
 class AdvancedConfig:
     """Advanced features configuration."""
     build_citation_network: bool = False
@@ -196,6 +209,7 @@ class LiteratureRAGConfig:
     api: APIConfig
     storage: StorageConfig
     advanced: AdvancedConfig
+    llm: LLMConfig
     custom: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -241,6 +255,7 @@ def load_config(config_path: Optional[str] = None) -> LiteratureRAGConfig:
         api=_load_api_config(yaml_config.get("api", {}), env_settings),
         storage=_load_storage_config(yaml_config.get("storage", {}), env_settings),
         advanced=_load_advanced_config(yaml_config.get("advanced", {}), env_settings),
+        llm=_load_llm_config(yaml_config.get("llm", {}), env_settings),
         custom=yaml_config.get("custom", {})
     )
 
@@ -395,4 +410,15 @@ def _load_advanced_config(yaml_advanced: dict, env_settings: Settings) -> Advanc
         log_file=yaml_advanced.get("log_file", "./logs/literature_rag.log"),
         parallel_processing=yaml_advanced.get("parallel_processing", True),
         max_workers=yaml_advanced.get("max_workers", 4)
+    )
+
+
+def _load_llm_config(yaml_llm: dict, env_settings: Settings) -> LLMConfig:
+    """Load LLM configuration with environment overrides."""
+    return LLMConfig(
+        provider=yaml_llm.get("provider", "groq"),
+        model=yaml_llm.get("model", "llama-3.3-70b-versatile"),
+        temperature=yaml_llm.get("temperature", 0.1),
+        max_tokens=yaml_llm.get("max_tokens", 2048),
+        groq_api_key=env_settings.groq_api_key  # Environment override
     )

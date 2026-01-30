@@ -5,9 +5,10 @@ Adapted from personality RAG API patterns.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, HTTPException, status, Depends, Request
 from fastapi.openapi.utils import get_openapi
@@ -44,12 +45,13 @@ logger = logging.getLogger(__name__)
 # Global RAG system instance
 rag_system: LiteratureReviewRAG = None
 config: Any = None
+groq_client = None  # Groq LLM client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for RAG system initialization."""
-    global rag_system, config
+    global rag_system, config, groq_client
 
     logger.info("Initializing Literature Review RAG system...")
 
@@ -75,6 +77,19 @@ async def lifespan(app: FastAPI):
             logger.info(f"RAG system ready! Loaded {rag_system.collection.count()} chunks")
         else:
             logger.warning("RAG system initialized but no index found. Run build_index.py first.")
+
+        # Initialize Groq client if API key is available
+        if config.llm.groq_api_key:
+            try:
+                from groq import Groq
+                groq_client = Groq(api_key=config.llm.groq_api_key)
+                logger.info(f"Groq LLM initialized with model: {config.llm.model}")
+            except ImportError:
+                logger.warning("Groq package not installed. Run: pip install groq")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Groq client: {e}")
+        else:
+            logger.info("Groq API key not configured. LLM chat endpoint will be disabled.")
 
         yield
 
@@ -427,6 +442,111 @@ async def api_answer_with_citations(
         }
     except Exception as e:
         logger.error(f"API answer failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/chat")
+async def api_chat_with_llm(
+    question: str,
+    n_sources: int = 5,
+    phase_filter: str = None,
+    topic_filter: str = None
+):
+    """
+    Chat with the literature using Groq LLM (Llama 3.3 70B).
+
+    Retrieves relevant context from the literature and generates
+    an AI-powered response with citations.
+    """
+    check_rag_ready()
+
+    if groq_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM not configured. Set GROQ_API_KEY in .env file."
+        )
+
+    try:
+        # Build filters
+        filters = {}
+        if phase_filter:
+            filters["phase_filter"] = phase_filter
+        if topic_filter:
+            filters["topic_filter"] = topic_filter
+
+        # Retrieve relevant context
+        results = rag_system.query(
+            question=question,
+            n_results=n_sources,
+            **filters
+        )
+
+        # Build context string with citations
+        context_parts = []
+        sources = []
+        for i in range(len(results["documents"][0])):
+            metadata = results["metadatas"][0][i]
+            chunk_text = results["documents"][0][i]
+
+            authors = metadata.get("authors", "Unknown")
+            year = metadata.get("year", "n.d.")
+            title = metadata.get("title", "Untitled")
+
+            citation = f"[{i+1}] {authors} ({year})"
+            context_parts.append(f"{citation}:\n{chunk_text}\n")
+
+            sources.append({
+                "citation_number": i + 1,
+                "authors": authors,
+                "year": year,
+                "title": title,
+                "doc_id": metadata.get("doc_id")
+            })
+
+        context = "\n".join(context_parts)
+
+        # Build prompt for LLM
+        system_prompt = """You are an expert academic research assistant specializing in German regional economic transitions, institutional economics, and the Ruhr Valley transformation.
+
+Answer questions based ONLY on the provided academic literature context. Always cite sources using the citation numbers provided (e.g., [1], [2]).
+
+Be precise, academic in tone, and synthesize information across multiple sources when relevant. If the context doesn't contain enough information to fully answer the question, acknowledge this limitation."""
+
+        user_prompt = f"""Based on the following academic literature excerpts, please answer this question:
+
+QUESTION: {question}
+
+ACADEMIC LITERATURE CONTEXT:
+{context}
+
+Please provide a well-structured answer with citations."""
+
+        # Call Groq API
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            model=config.llm.model,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens
+        )
+
+        answer = chat_completion.choices[0].message.content
+
+        return {
+            "question": question,
+            "answer": answer,
+            "sources": sources,
+            "model": config.llm.model,
+            "filters_applied": filters
+        }
+
+    except Exception as e:
+        logger.error(f"API chat failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)

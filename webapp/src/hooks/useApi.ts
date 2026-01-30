@@ -9,16 +9,22 @@ function useApiCall<T>(fetchFn: () => Promise<T>, deps: unknown[] = []) {
 
   useEffect(() => {
     let mounted = true;
-    
+
     async function fetch() {
+      console.log('[useApiCall] Starting fetch...');
       setLoading(true);
       setError(null);
       try {
         const result = await fetchFn();
+        console.log('[useApiCall] Got result:', result);
         if (mounted) {
+          console.log('[useApiCall] Setting data...');
           setData(result);
+        } else {
+          console.log('[useApiCall] Component unmounted, skipping setData');
         }
       } catch (err) {
+        console.error('[useApiCall] Error:', err);
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Unknown error');
         }
@@ -30,8 +36,9 @@ function useApiCall<T>(fetchFn: () => Promise<T>, deps: unknown[] = []) {
     }
 
     fetch();
-    
+
     return () => {
+      console.log('[useApiCall] Cleanup - setting mounted=false');
       mounted = false;
     };
   }, deps);

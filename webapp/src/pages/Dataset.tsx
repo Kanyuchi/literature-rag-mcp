@@ -50,8 +50,13 @@ export default function Dataset() {
   const { data: papersData, loading, error } = usePapers({ limit: 100 });
   const { data: stats } = useStats();
 
+  // Debug logging
+  console.log('Papers data:', papersData);
+  console.log('Loading:', loading);
+  console.log('Error:', error);
+
   // Filter papers based on search and filters
-  const filteredPapers = papersData?.papers.filter(paper => {
+  const filteredPapers = papersData?.papers?.filter(paper => {
     const matchesSearch = !searchQuery || 
       paper.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       paper.authors?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -133,6 +138,16 @@ export default function Dataset() {
             </div>
           </div>
         </motion.div>
+
+        {/* Debug Info - remove after testing */}
+        <div className="mb-4 p-4 bg-secondary/30 rounded-lg text-sm">
+          <p>Loading: {loading ? 'true' : 'false'}</p>
+          <p>Error: {error || 'none'}</p>
+          <p>Papers data exists: {papersData ? 'yes' : 'no'}</p>
+          <p>Papers array exists: {papersData?.papers ? 'yes' : 'no'}</p>
+          <p>Papers count: {papersData?.papers?.length ?? 'N/A'}</p>
+          <p>Filtered count: {filteredPapers.length}</p>
+        </div>
 
         {/* Loading State */}
         {loading && (

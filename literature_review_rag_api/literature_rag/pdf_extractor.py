@@ -297,7 +297,7 @@ class AcademicPDFExtractor:
         filename = metadata.filename
         stem = Path(filename).stem
 
-        # Words that are NOT author names (common in filenames)
+        # Comprehensive words that are NOT author names (common in filenames)
         excluded_filename_words = {
             'the', 'and', 'for', 'with', 'from', 'introduction', 'chapter',
             'paper', 'article', 'draft', 'final', 'revised', 'version',
@@ -308,6 +308,18 @@ class AcademicPDFExtractor:
             'world', 'resources', 'institute', 'center', 'university',
             'covid', 'pandemic', 'emerging', 'trends', 'varieties', 'capitalism',
             'an', 'of', 'in', 'to', 'on', 'at', 'by', 'is', 'as', 'or',
+            'spatial', 'panel', 'data', 'models', 'econometric', 'productivity',
+            'new', 'administrative', 'welfare', 'raising', 'bar', 'two', 'laws',
+            'geo', 'nested', 'mixed', 'methods', 'research', 'depend', 'presentation',
+            'working', 'encyclopedia', 'cities', 'variations', 'across',
+            'just', 'coal', 'mining', 'energy', 'power', 'hub', 'green', 'pivot',
+            'appalachia', 'australia', 'future', 'workers', 'communities',
+            'quality', 'government', 'innovative', 'performance', 'sectoral',
+            'health', 'monitoring', 'developing', 'socioeconomic', 'deprivation', 'index',
+            'income', 'inequality', 'strategy', 'clusters', 'deal', 'disruptive', 'innovation',
+            'rethinking', 'resilience', 'preconditions', 'processes', 'shaping', 'transformative',
+            'institutional', 'complementarities', 'political', 'economy', 'empirical',
+            'liberalization', 'politics', 'solidarity', 'coordination', 'rights', 'competition', 'law',
         }
 
         # Try to extract year from filename
@@ -395,89 +407,110 @@ class AcademicPDFExtractor:
 
     def _extract_authors_from_text(self, text: str) -> Optional[List[str]]:
         """Extract authors from first pages text with improved accuracy."""
-        # Words that are definitely NOT author names
+        # Comprehensive list of words that are NOT author names
         excluded_words = {
-            # Common academic words
+            # Common academic/paper words
             'abstract', 'introduction', 'methods', 'results', 'discussion', 'conclusion',
             'references', 'acknowledgments', 'keywords', 'background', 'analysis',
-            # Common title/content words
+            'literature', 'framework', 'approach', 'methodology', 'findings', 'implications',
+            # Content/title words
             'how', 'what', 'why', 'when', 'where', 'which', 'about', 'lessons', 'mapping',
-            'quality', 'regional', 'drivers', 'managing', 'transition', 'economic',
+            'quality', 'regional', 'drivers', 'managing', 'transition', 'economic', 'economics',
             'deindustrialization', 'entrepreneurship', 'business', 'formation', 'germany',
-            'german', 'european', 'policy', 'development', 'industrial', 'social',
-            'political', 'institutional', 'comparative', 'empirical', 'theoretical',
-            'understanding', 'examining', 'exploring', 'analyzing', 'review', 'study',
-            'research', 'paper', 'article', 'journal', 'volume', 'issue', 'page',
-            'university', 'institute', 'center', 'department', 'school', 'faculty',
-            'covid', 'pandemic', 'crisis', 'impact', 'effects', 'challenges',
-            # Common first words
-            'the', 'and', 'for', 'with', 'from', 'this', 'that', 'these', 'those',
-            'new', 'old', 'first', 'second', 'third', 'last', 'next', 'previous',
-            # Organization words
+            'german', 'european', 'policy', 'development', 'industrial', 'social', 'spatial',
+            'political', 'institutional', 'comparative', 'empirical', 'theoretical', 'conceptual',
+            'understanding', 'examining', 'exploring', 'analyzing', 'review', 'study', 'studies',
+            'research', 'paper', 'article', 'journal', 'volume', 'issue', 'page', 'pages',
+            'covid', 'pandemic', 'crisis', 'impact', 'effects', 'challenges', 'opportunities',
+            # Organization/institution words
+            'university', 'institute', 'center', 'centre', 'department', 'school', 'faculty',
             'world', 'national', 'international', 'global', 'local', 'public', 'private',
+            'resources', 'conservation', 'environment', 'environmental', 'nuclear', 'safety',
+            'technology', 'berlin', 'munich', 'cologne', 'frankfurt', 'hamburg', 'brussels',
+            'attribution', 'commons', 'creative', 'license', 'copyright', 'rights', 'reserved',
+            # Industry/topic words
+            'coal', 'mining', 'energy', 'power', 'industry', 'industries', 'sector', 'sectors',
+            'employment', 'labor', 'labour', 'market', 'markets', 'workers', 'workforce',
+            'climate', 'stricter', 'robust', 'expertise', 'highlights', 'overview', 'summary',
+            'year', 'years', 'date', 'january', 'february', 'march', 'april', 'may', 'june',
+            'july', 'august', 'september', 'october', 'november', 'december', 'imprint',
+            'published', 'publishing', 'publisher', 'edition', 'edited', 'editors',
+            # Common words
+            'the', 'and', 'for', 'with', 'from', 'this', 'that', 'these', 'those', 'their',
+            'new', 'old', 'first', 'second', 'third', 'last', 'next', 'previous', 'recent',
+            'just', 'only', 'also', 'more', 'most', 'some', 'many', 'much', 'other', 'another',
+            # Geographic
+            'europe', 'america', 'asia', 'africa', 'ruhr', 'valley', 'region', 'regions',
+            'area', 'areas', 'city', 'cities', 'town', 'towns', 'country', 'countries',
+            'appalachia', 'australia', 'australian', 'coordination', 'varieties', 'capitalism',
         }
 
-        # Check first 2500 chars for author patterns
-        search_text = text[:2500]
+        # Check first 2000 chars for author patterns
+        search_text = text[:2000]
+
+        # Clean the search text - remove newlines and extra whitespace
+        search_text = re.sub(r'\s+', ' ', search_text)
 
         authors = []
 
         # Pattern 1: "by FirstName LastName" or "By FirstName M. LastName"
-        by_pattern = r'(?i)\bby\s+([A-Z][a-z]{2,15}(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]{2,20})'
+        by_pattern = r'(?i)\bby\s+([A-Z][a-z]{2,12}(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]{2,15})'
         by_matches = re.findall(by_pattern, search_text)
         authors.extend(by_matches)
 
         # Pattern 2: Names with academic affiliations nearby (superscripts, asterisks)
-        affiliation_pattern = r'([A-Z][a-z]{2,15}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,20})[\s]*[¹²³⁴⁵⁶⁷⁸⁹\*†‡§\d,]'
+        affiliation_pattern = r'([A-Z][a-z]{2,12}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,15})[¹²³⁴⁵⁶⁷⁸⁹\*†‡§]'
         affil_matches = re.findall(affiliation_pattern, search_text)
         authors.extend(affil_matches)
 
         # Pattern 3: "FirstName LastName and FirstName LastName"
-        and_pattern = r'([A-Z][a-z]{2,15}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,20})\s+and\s+([A-Z][a-z]{2,15}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,20})'
+        and_pattern = r'([A-Z][a-z]{2,12}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,15})\s+and\s+([A-Z][a-z]{2,12}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,15})'
         and_matches = re.findall(and_pattern, search_text)
         for match in and_matches:
             authors.extend(match)
-
-        # Pattern 4: Names followed by email domain pattern
-        email_pattern = r'([A-Z][a-z]{2,15}\s+(?:[A-Z]\.\s*)?[A-Z][a-z]{2,20})[\s\n]*(?:[\w.]+@)'
-        email_matches = re.findall(email_pattern, search_text)
-        authors.extend(email_matches)
 
         # Clean and validate authors
         clean_authors = []
         seen = set()
 
         for author in authors:
-            author = author.strip()
+            # Clean whitespace
+            author = ' '.join(author.split())
+
+            # Reject if contains suspicious characters
+            if any(c in author for c in '\n\t\r@#$%^&*()[]{}|\\<>'):
+                continue
 
             # Must have at least 2 parts (first and last name)
             parts = author.split()
-            if len(parts) < 2:
+            if len(parts) < 2 or len(parts) > 4:
                 continue
 
-            # Check each part isn't an excluded word
+            # Check each part isn't an excluded word and is a valid name part
             is_valid = True
             for part in parts:
                 part_clean = re.sub(r'[^a-zA-Z]', '', part).lower()
+                # Skip initials (single letter with period)
+                if len(part_clean) == 1:
+                    continue
                 if part_clean in excluded_words or len(part_clean) < 2:
+                    is_valid = False
+                    break
+                # Names should start with capital and have mostly lowercase
+                if not part[0].isupper():
                     is_valid = False
                     break
 
             if not is_valid:
                 continue
 
-            # Skip if name is too short overall
-            if len(author) < 5:
+            # Skip if total length is suspicious
+            if len(author) < 6 or len(author) > 40:
                 continue
 
-            # Skip if starts with excluded word
-            first_word = parts[0].lower()
-            if first_word in excluded_words:
-                continue
-
-            # Skip if it looks like a title (too many capital letters)
-            caps_ratio = sum(1 for c in author if c.isupper()) / len(author)
-            if caps_ratio > 0.5:  # More than 50% uppercase is suspicious
+            # Skip if too many capital letters (likely acronym or title)
+            caps_count = sum(1 for c in author if c.isupper())
+            if caps_count > len(parts) + 1:  # Allow 1 cap per word plus 1 for middle initial
                 continue
 
             # Add to clean list if not seen
@@ -486,7 +519,7 @@ class AcademicPDFExtractor:
                 seen.add(author_key)
                 clean_authors.append(author)
 
-        return clean_authors[:5] if clean_authors else None
+        return clean_authors[:4] if clean_authors else None
 
     def _extract_with_sections(self, doc: fitz.Document) -> Tuple[List[ExtractedSection], float]:
         """

@@ -210,14 +210,8 @@ class AcademicPDFExtractor:
                 if not any(skip in title for skip in skip_patterns) and len(title) > 10:
                     metadata.title = title
 
-            # Author(s)
-            if pdf_meta.get("author") and not metadata.authors:
-                author_str = pdf_meta["author"]
-                # Skip system authors
-                if author_str.lower() not in ["admin", "user", "unknown", "microsoft"]:
-                    # Split by common separators
-                    authors = re.split(r'[,;]|\s+and\s+', author_str)
-                    metadata.authors = [a.strip() for a in authors if a.strip() and len(a.strip()) > 2]
+            # Author(s) - Skip PDF metadata authors as they're often unreliable
+            # We'll extract authors from text instead, which has better validation
 
             # Year (from creation date or modification date)
             if not metadata.year:

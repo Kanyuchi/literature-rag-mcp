@@ -183,7 +183,22 @@ export default function Dataset() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground max-w-[200px] truncate">
-                          {paper.authors || 'Unknown'}
+                          {(() => {
+                            const authors = paper.authors;
+                            if (!authors) return 'Unknown';
+                            // Filter out suspicious "author" names that are likely extraction errors
+                            const suspiciousWords = ['how', 'about', 'the', 'lessons', 'mapping', 'quality',
+                              'regional', 'drivers', 'managing', 'deindustrialization', 'entrepreneurship',
+                              'just', 'transition', 'unknown', 'covid', 'germany'];
+                            const authorLower = authors.toLowerCase().trim();
+                            if (suspiciousWords.includes(authorLower) ||
+                                authorLower.length < 3 ||
+                                /^\d/.test(authors) ||
+                                authorLower.startsWith('the ')) {
+                              return 'Unknown';
+                            }
+                            return authors;
+                          })()}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {paper.year || '-'}

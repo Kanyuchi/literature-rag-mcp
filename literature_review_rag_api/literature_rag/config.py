@@ -180,6 +180,18 @@ class LLMConfig:
 
 
 @dataclass
+class UploadConfig:
+    """Upload configuration."""
+    enabled: bool = True
+    max_file_size: int = 52428800  # 50MB default
+    temp_path: str = "./uploads/temp"
+    storage_path: str = "./uploads/pdfs"
+    allowed_extensions: List[str] = field(default_factory=lambda: [".pdf"])
+    cleanup_temp: bool = True
+    processing_timeout: int = 300
+
+
+@dataclass
 class AdvancedConfig:
     """Advanced features configuration."""
     build_citation_network: bool = False
@@ -208,6 +220,7 @@ class LiteratureRAGConfig:
     filters: FilterConfig
     api: APIConfig
     storage: StorageConfig
+    upload: UploadConfig
     advanced: AdvancedConfig
     llm: LLMConfig
     custom: Dict[str, Any] = field(default_factory=dict)
@@ -254,6 +267,7 @@ def load_config(config_path: Optional[str] = None) -> LiteratureRAGConfig:
         filters=_load_filter_config(yaml_config.get("filters", {})),
         api=_load_api_config(yaml_config.get("api", {}), env_settings),
         storage=_load_storage_config(yaml_config.get("storage", {}), env_settings),
+        upload=_load_upload_config(yaml_config.get("upload", {})),
         advanced=_load_advanced_config(yaml_config.get("advanced", {}), env_settings),
         llm=_load_llm_config(yaml_config.get("llm", {}), env_settings),
         custom=yaml_config.get("custom", {})
@@ -421,4 +435,17 @@ def _load_llm_config(yaml_llm: dict, env_settings: Settings) -> LLMConfig:
         temperature=yaml_llm.get("temperature", 0.1),
         max_tokens=yaml_llm.get("max_tokens", 2048),
         groq_api_key=env_settings.groq_api_key  # Environment override
+    )
+
+
+def _load_upload_config(yaml_upload: dict) -> UploadConfig:
+    """Load upload configuration."""
+    return UploadConfig(
+        enabled=yaml_upload.get("enabled", True),
+        max_file_size=yaml_upload.get("max_file_size", 52428800),
+        temp_path=yaml_upload.get("temp_path", "./uploads/temp"),
+        storage_path=yaml_upload.get("storage_path", "./uploads/pdfs"),
+        allowed_extensions=yaml_upload.get("allowed_extensions", [".pdf"]),
+        cleanup_temp=yaml_upload.get("cleanup_temp", True),
+        processing_timeout=yaml_upload.get("processing_timeout", 300)
     )

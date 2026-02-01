@@ -6,11 +6,13 @@ Adapted from personality RAG API patterns.
 
 import logging
 import os
+import shutil
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
-from fastapi import FastAPI, HTTPException, status, Depends, Request
+from fastapi import FastAPI, HTTPException, status, Depends, Request, UploadFile, File, Form
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import APIKeyHeader, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,8 +34,13 @@ from .models import (
     ErrorResponse,
     DocumentResult,
     PaperMetadata,
-    PaperInfo
+    PaperInfo,
+    UploadResponse,
+    DocumentInfo,
+    DocumentListResponse,
+    DeleteResponse
 )
+from .indexer import DocumentIndexer, create_indexer_from_rag
 
 # Setup logging
 logging.basicConfig(
@@ -44,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Global RAG system instance
 rag_system: LiteratureReviewRAG = None
+document_indexer: DocumentIndexer = None
 config: Any = None
 groq_client = None  # Groq LLM client
 
@@ -51,7 +59,7 @@ groq_client = None  # Groq LLM client
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for RAG system initialization."""
-    global rag_system, config, groq_client
+    global rag_system, document_indexer, config, groq_client
 
     logger.info("Initializing Literature Review RAG system...")
 
@@ -77,6 +85,22 @@ async def lifespan(app: FastAPI):
             logger.info(f"RAG system ready! Loaded {rag_system.collection.count()} chunks")
         else:
             logger.warning("RAG system initialized but no index found. Run build_index.py first.")
+
+        # Initialize document indexer for uploads
+        if rag_system.collection:
+            document_indexer = create_indexer_from_rag(rag_system, {
+                "extraction": vars(config.extraction) if hasattr(config.extraction, '__dict__') else {},
+                "chunking": vars(config.chunking) if hasattr(config.chunking, '__dict__') else {},
+                "embedding": vars(config.embedding) if hasattr(config.embedding, '__dict__') else {}
+            })
+            logger.info("Document indexer initialized for PDF uploads")
+
+        # Create upload directories if they don't exist
+        upload_config = getattr(config, 'upload', None)
+        if upload_config and hasattr(upload_config, 'temp_path'):
+            Path(upload_config.temp_path).mkdir(parents=True, exist_ok=True)
+            Path(upload_config.storage_path).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Upload directories ready: {upload_config.storage_path}")
 
         # Initialize Groq client if API key is available
         if config.llm.groq_api_key:
@@ -954,6 +978,267 @@ async def analyze_gaps(focus_area: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gap analysis failed: {str(e)}"
         )
+
+
+# ============================================================================
+# UPLOAD ENDPOINTS
+# ============================================================================
+
+def check_upload_enabled():
+    """Check if upload functionality is enabled."""
+    upload_config = getattr(config, 'upload', None)
+    if not upload_config or not getattr(upload_config, 'enabled', False):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Upload functionality is not enabled"
+        )
+    if document_indexer is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document indexer not initialized"
+        )
+
+
+def get_phase_names() -> Dict[str, str]:
+    """Get mapping of phase to phase name from config."""
+    phases_config = config.data.phases if hasattr(config.data, 'phases') else []
+    return {p.get('name', ''): p.get('full_name', '') for p in phases_config}
+
+
+@app.post("/api/upload", response_model=UploadResponse)
+async def upload_pdf(
+    file: UploadFile = File(..., description="PDF file to upload"),
+    phase: str = Form(..., description="Phase (e.g., 'Phase 1', 'Phase 2')"),
+    topic: str = Form(..., description="Topic category (e.g., 'Business Formation')")
+):
+    """
+    Upload and index a PDF file.
+
+    The PDF will be processed, chunked, embedded, and added to the knowledge base.
+    Requires phase and topic selection for proper organization.
+    """
+    check_rag_ready()
+    check_upload_enabled()
+
+    upload_config = config.upload
+
+    # Validate file extension
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename is required"
+        )
+
+    file_ext = Path(file.filename).suffix.lower()
+    allowed_extensions = getattr(upload_config, 'allowed_extensions', ['.pdf'])
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: {allowed_extensions}"
+        )
+
+    # Check file size
+    max_size = getattr(upload_config, 'max_file_size', 52428800)  # 50MB default
+    contents = await file.read()
+    if len(contents) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum size: {max_size / (1024*1024):.1f}MB"
+        )
+
+    # Reset file position
+    await file.seek(0)
+
+    # Generate unique ID for this upload
+    upload_id = str(uuid.uuid4())[:8]
+
+    # Save to temp directory
+    temp_path = Path(upload_config.temp_path)
+    temp_file = temp_path / f"{upload_id}_{file.filename}"
+
+    try:
+        # Write file to temp location
+        with open(temp_file, "wb") as f:
+            f.write(contents)
+
+        logger.info(f"Saved temp file: {temp_file}")
+
+        # Get phase name from config
+        phase_names = get_phase_names()
+        phase_name = phase_names.get(phase, phase)
+
+        # Index the PDF
+        result = document_indexer.index_pdf(
+            pdf_path=temp_file,
+            phase=phase,
+            phase_name=phase_name,
+            topic_category=topic
+        )
+
+        if result["success"]:
+            # Move to permanent storage
+            storage_path = Path(upload_config.storage_path)
+            phase_topic_dir = storage_path / phase / topic
+            phase_topic_dir.mkdir(parents=True, exist_ok=True)
+
+            permanent_file = phase_topic_dir / file.filename
+            shutil.move(str(temp_file), str(permanent_file))
+            logger.info(f"Moved to permanent storage: {permanent_file}")
+
+            return UploadResponse(
+                success=True,
+                doc_id=result["doc_id"],
+                filename=file.filename,
+                chunks_indexed=result["chunks_indexed"],
+                metadata=result["metadata"],
+                error=None
+            )
+        else:
+            # Cleanup temp file on failure
+            if temp_file.exists():
+                temp_file.unlink()
+
+            return UploadResponse(
+                success=False,
+                doc_id=None,
+                filename=file.filename,
+                chunks_indexed=0,
+                metadata=None,
+                error=result.get("error", "Unknown error during indexing")
+            )
+
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        # Cleanup temp file
+        if temp_file.exists():
+            temp_file.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/documents", response_model=DocumentListResponse)
+async def list_documents(
+    phase_filter: str = None,
+    topic_filter: str = None,
+    limit: int = 100
+):
+    """
+    List all indexed documents.
+
+    Returns document metadata for all papers in the knowledge base.
+    """
+    check_rag_ready()
+
+    try:
+        # Use the RAG system's list_documents method
+        all_docs = rag_system.list_documents()
+
+        # Apply filters
+        filtered_docs = []
+        for doc in all_docs:
+            if phase_filter and doc.get("phase") != phase_filter:
+                continue
+            if topic_filter and doc.get("topic_category") != topic_filter:
+                continue
+
+            filtered_docs.append(DocumentInfo(
+                doc_id=doc.get("doc_id"),
+                title=doc.get("title"),
+                authors=doc.get("authors"),
+                year=doc.get("year"),
+                phase=doc.get("phase"),
+                topic_category=doc.get("topic_category"),
+                filename=doc.get("filename"),
+                total_pages=doc.get("total_pages"),
+                doi=doc.get("doi"),
+                abstract=doc.get("abstract")
+            ))
+
+            if len(filtered_docs) >= limit:
+                break
+
+        return DocumentListResponse(
+            total=len(filtered_docs),
+            documents=filtered_docs
+        )
+
+    except Exception as e:
+        logger.error(f"List documents failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.delete("/api/documents/{doc_id}", response_model=DeleteResponse)
+async def delete_document(doc_id: str):
+    """
+    Delete a document and all its chunks from the knowledge base.
+
+    This permanently removes the document from the index.
+    The original PDF file is NOT deleted from storage.
+    """
+    check_rag_ready()
+
+    try:
+        result = rag_system.delete_by_doc_id(doc_id)
+
+        return DeleteResponse(
+            success=result["success"],
+            doc_id=doc_id,
+            chunks_deleted=result.get("chunks_deleted", 0),
+            error=result.get("error")
+        )
+
+    except Exception as e:
+        logger.error(f"Delete document failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@app.get("/api/upload/config")
+async def get_upload_config():
+    """
+    Get upload configuration and available options.
+
+    Returns phases, topics, and upload limits for the UI.
+    """
+    upload_config = getattr(config, 'upload', None)
+
+    # Get phases from config
+    phases = []
+    if hasattr(config.data, 'phases'):
+        for p in config.data.phases:
+            phases.append({
+                "name": p.get('name'),
+                "full_name": p.get('full_name'),
+                "description": p.get('description')
+            })
+
+    # Get existing topics from the collection
+    topics = set()
+    if rag_system and rag_system.collection:
+        try:
+            all_data = rag_system.collection.get(include=["metadatas"])
+            for meta in all_data.get("metadatas", []):
+                topic = meta.get("topic_category")
+                if topic:
+                    topics.add(topic)
+        except Exception as e:
+            logger.warning(f"Could not fetch existing topics: {e}")
+
+    return {
+        "enabled": upload_config is not None and getattr(upload_config, 'enabled', False),
+        "max_file_size": getattr(upload_config, 'max_file_size', 52428800) if upload_config else 52428800,
+        "allowed_extensions": getattr(upload_config, 'allowed_extensions', ['.pdf']) if upload_config else ['.pdf'],
+        "phases": phases,
+        "existing_topics": sorted(list(topics))
+    }
 
 
 # ============================================================================

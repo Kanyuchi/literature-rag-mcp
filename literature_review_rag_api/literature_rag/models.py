@@ -294,3 +294,63 @@ class SystemStatistics(BaseModel):
     year_distribution: Dict[int, int]  # year → count
     research_type_distribution: Dict[str, int]
     geographic_distribution: Dict[str, int]
+
+
+# ============================================================================
+# UPLOAD MODELS
+# ============================================================================
+
+class UploadResponse(BaseModel):
+    """Response model for PDF upload."""
+    success: bool = Field(..., description="Whether upload was successful")
+    doc_id: Optional[str] = Field(default=None, description="Document ID of indexed paper")
+    filename: str = Field(..., description="Original filename")
+    chunks_indexed: int = Field(default=0, description="Number of chunks created")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Extracted metadata")
+    error: Optional[str] = Field(default=None, description="Error message if failed")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "doc_id": "phase2_business_formation_new_paper",
+                "filename": "2024_Smith_Entrepreneurship.pdf",
+                "chunks_indexed": 45,
+                "metadata": {
+                    "title": "Entrepreneurship in Post-Industrial Regions",
+                    "authors": ["Smith, J.", "Jones, M."],
+                    "year": 2024,
+                    "phase": "Phase 2",
+                    "topic_category": "Business Formation"
+                },
+                "error": None
+            }
+        }
+
+
+class DocumentInfo(BaseModel):
+    """Information about an indexed document."""
+    doc_id: str
+    title: Optional[str]
+    authors: Optional[str]
+    year: Optional[int]
+    phase: Optional[str]
+    topic_category: Optional[str]
+    filename: Optional[str]
+    total_pages: Optional[int]
+    doi: Optional[str]
+    abstract: Optional[str]
+
+
+class DocumentListResponse(BaseModel):
+    """Response model for listing documents."""
+    total: int = Field(..., description="Total number of documents")
+    documents: List[DocumentInfo] = Field(..., description="List of documents")
+
+
+class DeleteResponse(BaseModel):
+    """Response model for document deletion."""
+    success: bool
+    doc_id: str
+    chunks_deleted: int = Field(default=0, description="Number of chunks removed")
+    error: Optional[str] = Field(default=None, description="Error message if failed")

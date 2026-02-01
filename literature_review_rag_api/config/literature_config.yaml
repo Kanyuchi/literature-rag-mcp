@@ -258,6 +258,32 @@ storage:
     allow_reset: true
 
 # ----------------------------------------------------------------------------
+# UPLOAD SETTINGS
+# ----------------------------------------------------------------------------
+upload:
+  # Enable PDF upload functionality
+  enabled: true
+
+  # Maximum file size in bytes (50 MB default)
+  max_file_size: 52428800
+
+  # Temporary upload directory (for processing)
+  temp_path: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/uploads/temp"
+
+  # Permanent storage directory (for uploaded PDFs)
+  storage_path: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/uploads/pdfs"
+
+  # Allowed file extensions
+  allowed_extensions:
+    - ".pdf"
+
+  # Auto-cleanup temp files after processing
+  cleanup_temp: true
+
+  # Processing timeout in seconds
+  processing_timeout: 300
+
+# ----------------------------------------------------------------------------
 # ADVANCED FEATURES
 # ----------------------------------------------------------------------------
 advanced:

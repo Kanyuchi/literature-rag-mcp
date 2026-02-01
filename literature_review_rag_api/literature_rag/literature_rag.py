@@ -481,3 +481,175 @@ class LiteratureReviewRAG:
     def is_ready(self) -> bool:
         """Check if system is ready to serve queries."""
         return self.collection is not None and self.collection.count() > 0
+
+    def add_chunks(
+        self,
+        chunks: List[Dict[str, Any]],
+        embeddings_list: Optional[List[List[float]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Add chunks to the collection incrementally.
+
+        Args:
+            chunks: List of chunk dictionaries with 'text' and 'metadata' keys
+            embeddings_list: Optional pre-computed embeddings (if None, will compute)
+
+        Returns:
+            Dictionary with results:
+                - chunks_added: Number of chunks added
+                - success: Boolean indicating success
+                - error: Error message if failed
+        """
+        if not self.collection:
+            return {
+                "chunks_added": 0,
+                "success": False,
+                "error": "No collection loaded"
+            }
+
+        if not chunks:
+            return {
+                "chunks_added": 0,
+                "success": True,
+                "error": None
+            }
+
+        try:
+            texts = [chunk["text"] for chunk in chunks]
+            metadatas = [chunk["metadata"] for chunk in chunks]
+
+            # Generate IDs
+            ids = [
+                meta.get('chunk_id', f"{meta.get('doc_id', 'unknown')}_chunk_{meta.get('chunk_index', i)}")
+                for i, meta in enumerate(metadatas)
+            ]
+
+            # Compute embeddings if not provided
+            if embeddings_list is None:
+                embeddings_list = self.embeddings.embed_documents(texts)
+
+            # Add to collection
+            self.collection.add(
+                ids=ids,
+                embeddings=embeddings_list,
+                documents=texts,
+                metadatas=metadatas
+            )
+
+            logger.info(f"Added {len(chunks)} chunks to collection")
+
+            return {
+                "chunks_added": len(chunks),
+                "success": True,
+                "error": None
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to add chunks: {e}")
+            return {
+                "chunks_added": 0,
+                "success": False,
+                "error": str(e)
+            }
+
+    def delete_by_doc_id(self, doc_id: str) -> Dict[str, Any]:
+        """
+        Delete all chunks for a document from the collection.
+
+        Args:
+            doc_id: Document identifier to delete
+
+        Returns:
+            Dictionary with results:
+                - doc_id: Document identifier
+                - chunks_deleted: Number of chunks removed
+                - success: Boolean indicating success
+                - error: Error message if failed
+        """
+        if not self.collection:
+            return {
+                "doc_id": doc_id,
+                "chunks_deleted": 0,
+                "success": False,
+                "error": "No collection loaded"
+            }
+
+        try:
+            # Get all chunks for this document
+            results = self.collection.get(
+                where={"doc_id": doc_id},
+                include=[]  # Only need IDs
+            )
+
+            if not results or not results.get("ids"):
+                return {
+                    "doc_id": doc_id,
+                    "chunks_deleted": 0,
+                    "success": False,
+                    "error": f"Document not found: {doc_id}"
+                }
+
+            chunk_ids = results["ids"]
+            chunks_count = len(chunk_ids)
+
+            # Delete all chunks
+            self.collection.delete(ids=chunk_ids)
+
+            logger.info(f"Deleted {chunks_count} chunks for document {doc_id}")
+
+            return {
+                "doc_id": doc_id,
+                "chunks_deleted": chunks_count,
+                "success": True,
+                "error": None
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to delete document {doc_id}: {e}")
+            return {
+                "doc_id": doc_id,
+                "chunks_deleted": 0,
+                "success": False,
+                "error": str(e)
+            }
+
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """
+        List all unique documents in the collection.
+
+        Returns:
+            List of document metadata dictionaries
+        """
+        if not self.collection:
+            return []
+
+        try:
+            # Get all metadata
+            results = self.collection.get(include=["metadatas"])
+
+            if not results or not results.get("metadatas"):
+                return []
+
+            # Extract unique documents
+            unique_docs = {}
+            for meta in results["metadatas"]:
+                doc_id = meta.get("doc_id")
+                if doc_id and doc_id not in unique_docs:
+                    unique_docs[doc_id] = {
+                        "doc_id": doc_id,
+                        "title": meta.get("title"),
+                        "authors": meta.get("authors"),
+                        "year": meta.get("year"),
+                        "phase": meta.get("phase"),
+                        "topic_category": meta.get("topic_category"),
+                        "filename": meta.get("filename"),
+                        "total_pages": meta.get("total_pages"),
+                        "doi": meta.get("doi"),
+                        "abstract": meta.get("abstract")
+                    }
+
+            return list(unique_docs.values())
+
+        except Exception as e:
+            logger.error(f"Error listing documents: {e}")
+            return []

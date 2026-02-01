@@ -79,6 +79,53 @@ export interface QueryResponse {
   synthesis?: string;
 }
 
+// Upload-related interfaces
+export interface UploadResponse {
+  success: boolean;
+  doc_id?: string;
+  filename: string;
+  chunks_indexed: number;
+  metadata?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface DocumentInfo {
+  doc_id: string;
+  title?: string;
+  authors?: string;
+  year?: number;
+  phase?: string;
+  topic_category?: string;
+  filename?: string;
+  total_pages?: number;
+  doi?: string;
+  abstract?: string;
+}
+
+export interface DocumentListResponse {
+  total: number;
+  documents: DocumentInfo[];
+}
+
+export interface DeleteResponse {
+  success: boolean;
+  doc_id: string;
+  chunks_deleted: number;
+  error?: string;
+}
+
+export interface UploadConfigResponse {
+  enabled: boolean;
+  max_file_size: number;
+  allowed_extensions: string[];
+  phases: Array<{
+    name: string;
+    full_name: string;
+    description: string;
+  }>;
+  existing_topics: string[];
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -156,6 +203,89 @@ class ApiClient {
   // Health check
   async health(): Promise<{ status: string; rag_ready: boolean }> {
     return this.fetch('/health');
+  }
+
+  // Upload configuration
+  async getUploadConfig(): Promise<UploadConfigResponse> {
+    return this.fetch('/api/upload/config');
+  }
+
+  // Upload PDF
+  async uploadPDF(
+    file: File,
+    phase: string,
+    topic: string,
+    onProgress?: (progress: number) => void
+  ): Promise<UploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('phase', phase);
+    formData.append('topic', topic);
+
+    // Use XMLHttpRequest for progress tracking
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable && onProgress) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          onProgress(progress);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch {
+            reject(new Error('Invalid response from server'));
+          }
+        } else {
+          try {
+            const error = JSON.parse(xhr.responseText);
+            reject(new Error(error.detail || `HTTP ${xhr.status}`));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error'));
+      });
+
+      xhr.open('POST', `${this.baseUrl}/api/upload`);
+      xhr.send(formData);
+    });
+  }
+
+  // List documents
+  async listDocuments(params?: {
+    phase_filter?: string;
+    topic_filter?: string;
+    limit?: number;
+  }): Promise<DocumentListResponse> {
+    const searchParams = new URLSearchParams();
+    if (params?.phase_filter) searchParams.set('phase_filter', params.phase_filter);
+    if (params?.topic_filter) searchParams.set('topic_filter', params.topic_filter);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+
+    return this.fetch(`/api/documents?${searchParams.toString()}`);
+  }
+
+  // Delete document
+  async deleteDocument(docId: string): Promise<DeleteResponse> {
+    const response = await fetch(`${this.baseUrl}/api/documents/${encodeURIComponent(docId)}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+
+    return response.json();
   }
 }
 

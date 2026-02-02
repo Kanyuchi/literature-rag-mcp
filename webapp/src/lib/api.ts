@@ -229,6 +229,25 @@ export interface JobStats {
   };
 }
 
+export interface JobQueryResult {
+  content: string;
+  metadata: {
+    doc_id: string;
+    title?: string;
+    authors?: string;
+    year?: number;
+    phase?: string;
+    topic_category?: string;
+  };
+  score: number;
+}
+
+export interface JobQueryResponse {
+  question: string;
+  results: JobQueryResult[];
+  message?: string;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -679,7 +698,7 @@ class ApiClient {
       topic_filter?: string;
     },
     accessToken?: string
-  ): Promise<ChatResponse> {
+  ): Promise<JobQueryResponse> {
     const headers: Record<string, string> = {};
     if (accessToken) {
       headers.Authorization = `Bearer ${accessToken}`;

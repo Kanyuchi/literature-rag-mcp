@@ -319,11 +319,11 @@ async def list_job_documents(
     }
 
 
-@router.post("/{job_id}/query")
+@router.get("/{job_id}/query")
 async def query_job(
     job_id: int,
-    query: str,
-    n_results: int = 5,
+    question: str,
+    n_sources: int = 5,
     phase_filter: Optional[str] = None,
     topic_filter: Optional[str] = None,
     current_user: User = Depends(get_current_user),
@@ -355,7 +355,7 @@ async def query_job(
 
         if collection.count() == 0:
             return {
-                "query": query,
+                "question": question,
                 "results": [],
                 "message": "No documents in this knowledge base yet"
             }
@@ -369,7 +369,7 @@ async def query_job(
         )
 
         # Embed query
-        query_embedding = embeddings.embed_query(query)
+        query_embedding = embeddings.embed_query(question)
 
         # Build filters
         where_filter = None
@@ -388,7 +388,7 @@ async def query_job(
         # Query collection
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=n_results,
+            n_results=n_sources,
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
@@ -414,7 +414,7 @@ async def query_job(
             })
 
         return {
-            "query": query,
+            "question": question,
             "results": formatted_results
         }
 

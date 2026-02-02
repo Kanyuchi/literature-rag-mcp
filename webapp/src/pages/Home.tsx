@@ -1,9 +1,13 @@
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Database, MessageSquare, ChevronRight, Loader2, FileText, Layers, Calendar } from 'lucide-react';
+import { Database, MessageSquare, ChevronRight, Loader2, FileText, Layers, Calendar, Folder, Plus, Briefcase } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useStats } from '@/hooks/useApi';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
+import type { Job } from '@/lib/api';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -29,6 +33,35 @@ const itemVariants = {
 
 export default function Home() {
   const { data: stats, loading, error } = useStats();
+  const { isAuthenticated, isLoading: authLoading, accessToken, user } = useAuth();
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+
+  // Load user's jobs if authenticated
+  const loadJobs = useCallback(async () => {
+    if (!accessToken) return;
+    setJobsLoading(true);
+    try {
+      const response = await api.listJobs(accessToken);
+      setJobs(response.jobs);
+    } catch (err) {
+      console.error('Failed to load jobs:', err);
+    } finally {
+      setJobsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (isAuthenticated && accessToken) {
+      loadJobs();
+    }
+  }, [isAuthenticated, accessToken, loadJobs]);
+
+  // Calculate total stats from user's jobs
+  const userTotalDocs = jobs.reduce((sum, job) => sum + job.document_count, 0);
+  const userTotalChunks = jobs.reduce((sum, job) => sum + job.chunk_count, 0);
+
+  const isUserLoading = authLoading || (isAuthenticated && jobsLoading);
 
   return (
     <motion.div
@@ -44,156 +77,336 @@ export default function Home() {
             Welcome to <span className="gradient-text">RAGFlow</span>
           </h1>
           <p className="mt-4 text-muted-foreground text-lg">
-            Academic Literature Review RAG System
+            {isAuthenticated
+              ? `Hello, ${user?.name || user?.email?.split('@')[0] || 'Researcher'}! Manage your knowledge bases.`
+              : 'Academic Literature Review RAG System'}
           </p>
         </motion.section>
 
-        {/* Stats Section */}
-        <motion.section variants={itemVariants} className="mb-12">
-          {loading ? (
+        {/* Show different content based on auth state */}
+        {isUserLoading ? (
+          <motion.section variants={itemVariants}>
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
-          ) : error ? (
-            <div className="text-center py-12 text-destructive">
-              Failed to load stats: {error}
-            </div>
-          ) : stats ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <Card className="p-6 bg-card border-border">
-                <div className="flex items-center gap-3 mb-2">
-                  <FileText className="w-5 h-5 text-primary" />
-                  <span className="text-muted-foreground text-sm">Total Papers</span>
-                </div>
-                <p className="text-3xl font-bold text-white">{stats.total_papers}</p>
-              </Card>
-              
-              <Card className="p-6 bg-card border-border">
-                <div className="flex items-center gap-3 mb-2">
-                  <Layers className="w-5 h-5 text-primary" />
-                  <span className="text-muted-foreground text-sm">Total Chunks</span>
-                </div>
-                <p className="text-3xl font-bold text-white">{stats.total_chunks.toLocaleString()}</p>
-              </Card>
-              
-              <Card className="p-6 bg-card border-border">
-                <div className="flex items-center gap-3 mb-2">
-                  <Database className="w-5 h-5 text-primary" />
-                  <span className="text-muted-foreground text-sm">Phases</span>
-                </div>
-                <p className="text-3xl font-bold text-white">{Object.keys(stats.phases).length}</p>
-              </Card>
-              
-              <Card className="p-6 bg-card border-border">
-                <div className="flex items-center gap-3 mb-2">
-                  <Calendar className="w-5 h-5 text-primary" />
-                  <span className="text-muted-foreground text-sm">Year Range</span>
-                </div>
-                <p className="text-3xl font-bold text-white">
-                  {stats.year_range.min}-{stats.year_range.max}
-                </p>
-              </Card>
-            </div>
-          ) : null}
-        </motion.section>
-
-        {/* Topics & Phases */}
-        {stats && (
-          <motion.section variants={itemVariants} className="mb-12">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="p-6 bg-card border-border">
-                <h3 className="text-lg font-semibold text-white mb-4">Topics</h3>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(stats.topics).map(([topic, count]) => (
-                    <Badge key={topic} variant="secondary" className="bg-secondary/50">
-                      {topic} ({count})
-                    </Badge>
-                  ))}
-                </div>
-              </Card>
-              
-              <Card className="p-6 bg-card border-border">
-                <h3 className="text-lg font-semibold text-white mb-4">Phases</h3>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(stats.phases).map(([phase, count]) => (
-                    <Badge key={phase} variant="secondary" className="bg-secondary/50">
-                      {phase} ({count})
-                    </Badge>
-                  ))}
-                </div>
-              </Card>
-            </div>
           </motion.section>
-        )}
-
-        {/* Dataset Section */}
-        <motion.section variants={itemVariants} className="mb-12">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Database className="w-5 h-5 text-primary" />
-            </div>
-            <h2 className="text-2xl font-semibold text-white">Dataset</h2>
-          </div>
-          
-          <Link to="/datasets">
-            <motion.div
-              whileHover={{ y: -4, borderColor: 'hsl(var(--primary))' }}
-              transition={{ duration: 0.3 }}
-            >
-              <Card className="w-full max-w-[280px] h-[100px] bg-card border-border hover:border-primary/50 transition-colors cursor-pointer flex items-center justify-center group">
-                <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
-                  <span className="text-sm font-medium">See All Papers</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+        ) : isAuthenticated ? (
+          <>
+            {/* User's Jobs Section */}
+            <motion.section variants={itemVariants} className="mb-12">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Briefcase className="w-5 h-5 text-primary" />
+                  </div>
+                  <h2 className="text-2xl font-semibold text-white">Your Knowledge Bases</h2>
                 </div>
-              </Card>
-            </motion.div>
-          </Link>
-        </motion.section>
-
-        {/* Chat Apps Section */}
-        <motion.section variants={itemVariants}>
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <MessageSquare className="w-5 h-5 text-primary" />
+                <Link
+                  to="/jobs"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  New
+                </Link>
               </div>
-              <h2 className="text-2xl font-semibold text-white">Chat Apps</h2>
-            </div>
-            
-            {/* App Type Tabs */}
-            <div className="hidden sm:flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
-              <Link to="/chats">
-                <button className="px-4 py-1.5 rounded-md text-sm font-medium bg-background text-foreground transition-colors">
-                  Chat Apps
-                </button>
-              </Link>
-              <Link to="/searches">
-                <button className="px-4 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                  Search Apps
-                </button>
-              </Link>
-              <Link to="/agents">
-                <button className="px-4 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                  Agent
-                </button>
-              </Link>
-            </div>
-          </div>
-          
-          <Link to="/chats">
-            <motion.div
-              whileHover={{ y: -4, borderColor: 'hsl(var(--primary))' }}
-              transition={{ duration: 0.3 }}
-            >
-              <Card className="w-full max-w-[280px] h-[100px] bg-card border-border hover:border-primary/50 transition-colors cursor-pointer flex items-center justify-center group">
-                <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
-                  <span className="text-sm font-medium">Start Chat</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+
+              {jobs.length === 0 ? (
+                <Card className="p-8 bg-card border-border text-center">
+                  <Folder className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-foreground mb-2">
+                    No knowledge bases yet
+                  </h3>
+                  <p className="text-muted-foreground mb-4">
+                    Create your first knowledge base to start uploading and querying your own documents.
+                  </p>
+                  <Link
+                    to="/jobs"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create Knowledge Base
+                  </Link>
+                </Card>
+              ) : (
+                <>
+                  {/* User Stats */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    <Card className="p-6 bg-card border-border">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Folder className="w-5 h-5 text-primary" />
+                        <span className="text-muted-foreground text-sm">Knowledge Bases</span>
+                      </div>
+                      <p className="text-3xl font-bold text-white">{jobs.length}</p>
+                    </Card>
+                    <Card className="p-6 bg-card border-border">
+                      <div className="flex items-center gap-3 mb-2">
+                        <FileText className="w-5 h-5 text-primary" />
+                        <span className="text-muted-foreground text-sm">Total Documents</span>
+                      </div>
+                      <p className="text-3xl font-bold text-white">{userTotalDocs}</p>
+                    </Card>
+                    <Card className="p-6 bg-card border-border">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Layers className="w-5 h-5 text-primary" />
+                        <span className="text-muted-foreground text-sm">Total Chunks</span>
+                      </div>
+                      <p className="text-3xl font-bold text-white">{userTotalChunks.toLocaleString()}</p>
+                    </Card>
+                  </div>
+
+                  {/* Recent Jobs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {jobs.slice(0, 3).map((job) => (
+                      <Link key={job.id} to={`/jobs/${job.id}`}>
+                        <Card className="p-5 bg-card border-border hover:border-primary/50 transition-colors cursor-pointer group">
+                          <div className="flex items-start gap-3 mb-3">
+                            <div className="p-2 bg-primary/10 rounded-lg">
+                              <Folder className="h-5 w-5 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-foreground truncate">
+                                {job.name}
+                              </h3>
+                              {job.description && (
+                                <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
+                                  {job.description}
+                                </p>
+                              )}
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span>{job.document_count} docs</span>
+                            <span>{job.chunk_count} chunks</span>
+                          </div>
+                        </Card>
+                      </Link>
+                    ))}
+                    {jobs.length > 3 && (
+                      <Link to="/jobs">
+                        <Card className="p-5 bg-card border-border hover:border-primary/50 transition-colors cursor-pointer flex items-center justify-center h-full min-h-[120px]">
+                          <div className="text-center">
+                            <p className="text-muted-foreground">
+                              +{jobs.length - 3} more
+                            </p>
+                            <p className="text-sm text-primary mt-1">View all</p>
+                          </div>
+                        </Card>
+                      </Link>
+                    )}
+                  </div>
+                </>
+              )}
+            </motion.section>
+
+            {/* Public Demo Section (collapsed for logged-in users) */}
+            <motion.section variants={itemVariants} className="mb-12">
+              <div className="border-t border-border pt-8 mt-8">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-secondary/50 flex items-center justify-center">
+                    <Database className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-foreground">Public Demo Collection</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {stats?.total_papers || 0} papers on German regional economic transitions
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <Link to="/chats">
+                    <Card className="px-6 py-3 bg-card border-border hover:border-primary/50 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+                        <MessageSquare className="w-4 h-4" />
+                        <span className="text-sm">Chat with Demo</span>
+                      </div>
+                    </Card>
+                  </Link>
+                  <Link to="/datasets">
+                    <Card className="px-6 py-3 bg-card border-border hover:border-primary/50 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+                        <Database className="w-4 h-4" />
+                        <span className="text-sm">Browse Papers</span>
+                      </div>
+                    </Card>
+                  </Link>
+                </div>
+              </div>
+            </motion.section>
+          </>
+        ) : (
+          <>
+            {/* Guest Mode: Show Default Collection Stats */}
+            <motion.section variants={itemVariants} className="mb-12">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              ) : error ? (
+                <div className="text-center py-12 text-destructive">
+                  Failed to load stats: {error}
+                </div>
+              ) : stats ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  <Card className="p-6 bg-card border-border">
+                    <div className="flex items-center gap-3 mb-2">
+                      <FileText className="w-5 h-5 text-primary" />
+                      <span className="text-muted-foreground text-sm">Total Papers</span>
+                    </div>
+                    <p className="text-3xl font-bold text-white">{stats.total_papers}</p>
+                  </Card>
+
+                  <Card className="p-6 bg-card border-border">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Layers className="w-5 h-5 text-primary" />
+                      <span className="text-muted-foreground text-sm">Total Chunks</span>
+                    </div>
+                    <p className="text-3xl font-bold text-white">{stats.total_chunks.toLocaleString()}</p>
+                  </Card>
+
+                  <Card className="p-6 bg-card border-border">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Database className="w-5 h-5 text-primary" />
+                      <span className="text-muted-foreground text-sm">Phases</span>
+                    </div>
+                    <p className="text-3xl font-bold text-white">{Object.keys(stats.phases).length}</p>
+                  </Card>
+
+                  <Card className="p-6 bg-card border-border">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Calendar className="w-5 h-5 text-primary" />
+                      <span className="text-muted-foreground text-sm">Year Range</span>
+                    </div>
+                    <p className="text-3xl font-bold text-white">
+                      {stats.year_range.min}-{stats.year_range.max}
+                    </p>
+                  </Card>
+                </div>
+              ) : null}
+            </motion.section>
+
+            {/* Topics & Phases */}
+            {stats && (
+              <motion.section variants={itemVariants} className="mb-12">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <Card className="p-6 bg-card border-border">
+                    <h3 className="text-lg font-semibold text-white mb-4">Topics</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(stats.topics).map(([topic, count]) => (
+                        <Badge key={topic} variant="secondary" className="bg-secondary/50">
+                          {topic} ({count})
+                        </Badge>
+                      ))}
+                    </div>
+                  </Card>
+
+                  <Card className="p-6 bg-card border-border">
+                    <h3 className="text-lg font-semibold text-white mb-4">Phases</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(stats.phases).map(([phase, count]) => (
+                        <Badge key={phase} variant="secondary" className="bg-secondary/50">
+                          {phase} ({count})
+                        </Badge>
+                      ))}
+                    </div>
+                  </Card>
+                </div>
+              </motion.section>
+            )}
+
+            {/* Call to Action */}
+            <motion.section variants={itemVariants} className="mb-12">
+              <Card className="p-8 bg-gradient-to-r from-primary/10 to-accent/10 border-primary/20">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div>
+                    <h3 className="text-xl font-semibold text-foreground mb-2">
+                      Create Your Own Knowledge Base
+                    </h3>
+                    <p className="text-muted-foreground">
+                      Sign in to upload your own documents and build custom RAG applications.
+                    </p>
+                  </div>
+                  <Link
+                    to="/login"
+                    className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap"
+                  >
+                    Get Started
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
                 </div>
               </Card>
-            </motion.div>
-          </Link>
-        </motion.section>
+            </motion.section>
+
+            {/* Dataset Section */}
+            <motion.section variants={itemVariants} className="mb-12">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Database className="w-5 h-5 text-primary" />
+                </div>
+                <h2 className="text-2xl font-semibold text-white">Dataset</h2>
+              </div>
+
+              <Link to="/datasets">
+                <motion.div
+                  whileHover={{ y: -4, borderColor: 'hsl(var(--primary))' }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Card className="w-full max-w-[280px] h-[100px] bg-card border-border hover:border-primary/50 transition-colors cursor-pointer flex items-center justify-center group">
+                    <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                      <span className="text-sm font-medium">See All Papers</span>
+                      <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </Card>
+                </motion.div>
+              </Link>
+            </motion.section>
+
+            {/* Chat Apps Section */}
+            <motion.section variants={itemVariants}>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <MessageSquare className="w-5 h-5 text-primary" />
+                  </div>
+                  <h2 className="text-2xl font-semibold text-white">Chat Apps</h2>
+                </div>
+
+                {/* App Type Tabs */}
+                <div className="hidden sm:flex items-center gap-1 bg-secondary/50 rounded-lg p-1">
+                  <Link to="/chats">
+                    <button className="px-4 py-1.5 rounded-md text-sm font-medium bg-background text-foreground transition-colors">
+                      Chat Apps
+                    </button>
+                  </Link>
+                  <Link to="/searches">
+                    <button className="px-4 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                      Search Apps
+                    </button>
+                  </Link>
+                  <Link to="/agents">
+                    <button className="px-4 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                      Agent
+                    </button>
+                  </Link>
+                </div>
+              </div>
+
+              <Link to="/chats">
+                <motion.div
+                  whileHover={{ y: -4, borderColor: 'hsl(var(--primary))' }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Card className="w-full max-w-[280px] h-[100px] bg-card border-border hover:border-primary/50 transition-colors cursor-pointer flex items-center justify-center group">
+                    <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                      <span className="text-sm font-medium">Start Chat</span>
+                      <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </Card>
+                </motion.div>
+              </Link>
+            </motion.section>
+          </>
+        )}
       </div>
     </motion.div>
   );

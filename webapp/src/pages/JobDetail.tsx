@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
-import type { Job, JobDocument, JobStats, UploadConfigResponse, TaskStatusResponse } from '../lib/api';
+import type { Job, JobDocument, JobStats, UploadConfigResponse } from '../lib/api';
 import {
   ArrowLeft,
   Upload,
@@ -15,7 +15,21 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  Plus,
 } from 'lucide-react';
+
+interface UploadQueueItem {
+  id: string;
+  file: File;
+  phase: string;
+  topic: string;
+  status: 'pending' | 'uploading' | 'completed' | 'failed';
+  error?: string;
+  result?: {
+    doc_id: string;
+    chunks_indexed: number;
+  };
+}
 
 export default function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -31,11 +45,9 @@ export default function JobDetail() {
 
   // Upload state
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [uploadPhase, setUploadPhase] = useState('');
   const [uploadTopic, setUploadTopic] = useState('');
-  const [uploadStatus, setUploadStatus] = useState<TaskStatusResponse | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
   // Query state
@@ -95,35 +107,91 @@ export default function JobDetail() {
     }
   }, [accessToken, numericJobId, loadJob]);
 
+  // Handle file selection for multi-upload
+  const handleFilesSelected = (files: FileList | null) => {
+    if (!files) return;
+
+    const newItems: UploadQueueItem[] = Array.from(files).map((file, index) => ({
+      id: `${Date.now()}_${index}`,
+      file,
+      phase: uploadPhase,
+      topic: uploadTopic,
+      status: 'pending',
+    }));
+
+    setUploadQueue(prev => [...prev, ...newItems]);
+  };
+
+  const removeFromQueue = (id: string) => {
+    setUploadQueue(prev => prev.filter(item => item.id !== id));
+  };
+
+  const updateQueueItem = (id: string, updates: Partial<UploadQueueItem>) => {
+    setUploadQueue(prev =>
+      prev.map(item => (item.id === id ? { ...item, ...updates } : item))
+    );
+  };
+
+  // Process upload queue
   const handleUpload = async () => {
-    if (!uploadFile || !uploadPhase || !uploadTopic || !accessToken || !numericJobId) return;
+    if (!accessToken || !numericJobId || uploadQueue.length === 0) return;
 
     setIsUploading(true);
-    setUploadError(null);
-    setUploadStatus(null);
 
-    try {
-      const response = await api.uploadToJob(numericJobId, uploadFile, uploadPhase, uploadTopic, accessToken);
+    // Process each file sequentially
+    for (const item of uploadQueue) {
+      if (item.status !== 'pending') continue;
 
-      // Poll for completion
-      await api.pollUploadStatus(
-        response.task_id,
-        (status) => setUploadStatus(status),
-        500,
-        600
-      );
+      updateQueueItem(item.id, { status: 'uploading' });
 
-      // Reload data
-      await loadJob();
+      try {
+        const formData = new FormData();
+        formData.append('file', item.file);
+        formData.append('phase', item.phase || uploadPhase);
+        formData.append('topic', item.topic || uploadTopic);
 
-      // Reset form
-      setUploadFile(null);
-      setUploadTopic('');
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:8001'}/api/jobs/${numericJobId}/upload`,
+          {
+            method: 'POST',
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+            body: formData,
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Upload failed' }));
+          throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        updateQueueItem(item.id, {
+          status: 'completed',
+          result: {
+            doc_id: result.doc_id,
+            chunks_indexed: result.chunks_indexed,
+          },
+        });
+      } catch (err) {
+        updateQueueItem(item.id, {
+          status: 'failed',
+          error: err instanceof Error ? err.message : 'Upload failed',
+        });
+      }
+    }
+
+    setIsUploading(false);
+
+    // Reload data after all uploads
+    await loadJob();
+  };
+
+  const closeUploadModal = () => {
+    if (!isUploading) {
       setShowUploadModal(false);
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setIsUploading(false);
+      setUploadQueue([]);
+      setUploadTopic('');
     }
   };
 
@@ -135,7 +203,18 @@ export default function JobDetail() {
 
     try {
       const response = await api.queryJob(numericJobId, queryText, { n_sources: 5 }, accessToken);
-      setQueryResult(response.answer);
+
+      // Format the results
+      if (response.results && response.results.length > 0) {
+        const formatted = response.results.map((r: { content: string; metadata: { title?: string; authors?: string }; score: number }, i: number) =>
+          `**[${i + 1}]** ${r.metadata.title || 'Untitled'} (${r.metadata.authors || 'Unknown'})\n${r.content.substring(0, 300)}...\n*Score: ${r.score}*`
+        ).join('\n\n---\n\n');
+        setQueryResult(formatted);
+      } else if (response.message) {
+        setQueryResult(response.message);
+      } else {
+        setQueryResult('No results found for your query.');
+      }
     } catch (err) {
       setQueryResult(`Error: ${err instanceof Error ? err.message : 'Query failed'}`);
     } finally {
@@ -154,6 +233,7 @@ export default function JobDetail() {
       await loadJob();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete document');
+      setDeleteDoc(null);
     } finally {
       setIsDeleting(false);
     }
@@ -175,32 +255,32 @@ export default function JobDetail() {
 
   if (authLoading || (!isAuthenticated && !authLoading)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
 
   if (error || !job) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+      <div className="min-h-screen bg-background p-8">
         <div className="max-w-xl mx-auto">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-destructive mb-2">
               Error Loading Job
             </h2>
-            <p className="text-red-600 dark:text-red-400">{error || 'Job not found'}</p>
+            <p className="text-destructive/80">{error || 'Job not found'}</p>
             <Link
               to="/jobs"
-              className="inline-flex items-center gap-2 mt-4 text-blue-600 hover:text-blue-700"
+              className="inline-flex items-center gap-2 mt-4 text-primary hover:text-primary/80"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to Jobs
@@ -211,23 +291,27 @@ export default function JobDetail() {
     );
   }
 
+  const completedUploads = uploadQueue.filter(i => i.status === 'completed').length;
+  const failedUploads = uploadQueue.filter(i => i.status === 'failed').length;
+  const pendingUploads = uploadQueue.filter(i => i.status === 'pending' || i.status === 'uploading').length;
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <header className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Link
                 to="/jobs"
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Link>
               <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">{job.name}</h1>
+                <h1 className="text-xl font-bold text-foreground">{job.name}</h1>
                 {job.description && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{job.description}</p>
+                  <p className="text-sm text-muted-foreground">{job.description}</p>
                 )}
               </div>
             </div>
@@ -236,8 +320,8 @@ export default function JobDetail() {
                 onClick={() => setShowQueryPanel(!showQueryPanel)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                   showQueryPanel
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-secondary'
                 }`}
               >
                 <MessageSquare className="h-5 w-5" />
@@ -245,7 +329,7 @@ export default function JobDetail() {
               </button>
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
               >
                 <Upload className="h-5 w-5" />
                 Upload PDF
@@ -262,42 +346,42 @@ export default function JobDetail() {
             {/* Stats Cards */}
             {stats && (
               <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <div className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
-                      <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <div className="p-2 bg-primary/10 rounded-lg">
+                      <FileText className="h-5 w-5 text-primary" />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      <p className="text-2xl font-bold text-foreground">
                         {stats.document_count}
                       </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Documents</p>
+                      <p className="text-sm text-muted-foreground">Documents</p>
                     </div>
                   </div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <div className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-50 dark:bg-green-900/30 rounded-lg">
-                      <BarChart3 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    <div className="p-2 bg-green-500/10 rounded-lg">
+                      <BarChart3 className="h-5 w-5 text-green-500" />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      <p className="text-2xl font-bold text-foreground">
                         {stats.chunk_count}
                       </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Chunks</p>
+                      <p className="text-sm text-muted-foreground">Chunks</p>
                     </div>
                   </div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <div className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
-                      <BarChart3 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    <div className="p-2 bg-purple-500/10 rounded-lg">
+                      <BarChart3 className="h-5 w-5 text-purple-500" />
                     </div>
                     <div>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      <p className="text-2xl font-bold text-foreground">
                         {Object.keys(stats.topics).length}
                       </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Topics</p>
+                      <p className="text-sm text-muted-foreground">Topics</p>
                     </div>
                   </div>
                 </div>
@@ -307,69 +391,69 @@ export default function JobDetail() {
             {/* Search */}
             <div className="mb-4">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search documents..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-border rounded-lg bg-card text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
             </div>
 
             {/* Documents List */}
             {documents.length === 0 ? (
-              <div className="text-center py-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-                <FileText className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+              <div className="text-center py-12 bg-card border border-border rounded-lg">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
                   No documents yet
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Upload your first PDF to get started.
                 </p>
                 <button
                   onClick={() => setShowUploadModal(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
                 >
                   <Upload className="h-5 w-5" />
                   Upload PDF
                 </button>
               </div>
             ) : (
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <div className="bg-card border border-border rounded-lg overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-900/50">
+                  <thead className="bg-secondary/50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Document
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Phase / Topic
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Chunks
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Added
                       </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <tbody className="divide-y divide-border">
                     {filteredDocuments.map((doc) => (
-                      <tr key={doc.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30">
+                      <tr key={doc.id} className="hover:bg-secondary/30">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
-                            <FileText className="h-5 w-5 text-gray-400" />
+                            <FileText className="h-5 w-5 text-muted-foreground" />
                             <div>
-                              <p className="font-medium text-gray-900 dark:text-white truncate max-w-xs">
+                              <p className="font-medium text-foreground truncate max-w-xs">
                                 {doc.title || doc.filename}
                               </p>
                               {doc.authors && (
-                                <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
+                                <p className="text-sm text-muted-foreground truncate max-w-xs">
                                   {doc.authors}
                                 </p>
                               )}
@@ -377,26 +461,26 @@ export default function JobDetail() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-sm text-gray-600 dark:text-gray-300">
+                          <span className="text-sm text-foreground">
                             {doc.phase}
                           </span>
                           {doc.topic_category && (
-                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                            <span className="text-sm text-muted-foreground">
                               {' / '}
                               {doc.topic_category}
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        <td className="px-4 py-3 text-sm text-foreground">
                           {doc.chunk_count}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
                           {formatDate(doc.created_at)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => setDeleteDoc(doc)}
-                            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -411,12 +495,12 @@ export default function JobDetail() {
 
           {/* Query Panel */}
           {showQueryPanel && (
-            <div className="w-96 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 h-fit sticky top-4">
+            <div className="w-96 bg-card border border-border rounded-lg p-4 h-fit sticky top-4">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white">Query Knowledge Base</h3>
+                <h3 className="font-semibold text-foreground">Query Knowledge Base</h3>
                 <button
                   onClick={() => setShowQueryPanel(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -428,13 +512,13 @@ export default function JobDetail() {
                   onChange={(e) => setQueryText(e.target.value)}
                   placeholder="Ask a question about your documents..."
                   rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                 />
 
                 <button
                   onClick={handleQuery}
                   disabled={!queryText.trim() || isQuerying}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isQuerying ? (
                     <>
@@ -450,8 +534,8 @@ export default function JobDetail() {
                 </button>
 
                 {queryResult && (
-                  <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  <div className="p-4 bg-secondary/50 rounded-lg max-h-96 overflow-y-auto">
+                    <p className="text-sm text-foreground whitespace-pre-wrap">
                       {queryResult}
                     </p>
                   </div>
@@ -465,67 +549,23 @@ export default function JobDetail() {
       {/* Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => !isUploading && setShowUploadModal(false)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-              Upload PDF
+          <div className="absolute inset-0 bg-black/50" onClick={closeUploadModal} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[80vh] overflow-y-auto">
+            <h2 className="text-xl font-semibold text-foreground mb-4">
+              Upload PDFs
             </h2>
 
-            {uploadError && (
-              <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
-              </div>
-            )}
-
-            {uploadStatus && (
-              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  {uploadStatus.status === 'completed' ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
-                  )}
-                  <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                    {uploadStatus.message}
-                  </span>
-                </div>
-                {uploadStatus.progress > 0 && uploadStatus.status !== 'completed' && (
-                  <div className="w-full bg-blue-100 dark:bg-blue-900/50 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadStatus.progress}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
             <div className="space-y-4">
-              {/* File Input */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  PDF File
-                </label>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  disabled={isUploading}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-300"
-                />
-              </div>
-
               {/* Phase Select */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Phase
                 </label>
                 <select
                   value={uploadPhase}
                   onChange={(e) => setUploadPhase(e.target.value)}
                   disabled={isUploading}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground"
                 >
                   {uploadConfig?.phases.map((phase) => (
                     <option key={phase.name} value={phase.name}>
@@ -537,7 +577,7 @@ export default function JobDetail() {
 
               {/* Topic Input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Topic
                 </label>
                 <input
@@ -547,7 +587,7 @@ export default function JobDetail() {
                   placeholder="e.g., Business Formation"
                   disabled={isUploading}
                   list="existing-topics"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground"
                 />
                 <datalist id="existing-topics">
                   {uploadConfig?.existing_topics.map((topic) => (
@@ -556,21 +596,114 @@ export default function JobDetail() {
                 </datalist>
               </div>
 
+              {/* File Input */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  PDF Files
+                </label>
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 cursor-pointer">
+                    <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-border rounded-lg hover:border-primary/50 transition-colors">
+                      <Plus className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-muted-foreground">
+                        {uploadQueue.length === 0 ? 'Select PDF files' : 'Add more files'}
+                      </span>
+                    </div>
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      multiple
+                      onChange={(e) => handleFilesSelected(e.target.files)}
+                      disabled={isUploading}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Upload Queue */}
+              {uploadQueue.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Files ({uploadQueue.length})
+                  </p>
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {uploadQueue.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg ${
+                          item.status === 'completed'
+                            ? 'bg-green-500/10'
+                            : item.status === 'failed'
+                            ? 'bg-destructive/10'
+                            : item.status === 'uploading'
+                            ? 'bg-primary/10'
+                            : 'bg-secondary/50'
+                        }`}
+                      >
+                        {item.status === 'completed' ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        ) : item.status === 'failed' ? (
+                          <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0" />
+                        ) : item.status === 'uploading' ? (
+                          <Loader2 className="h-4 w-4 text-primary animate-spin flex-shrink-0" />
+                        ) : (
+                          <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground truncate">
+                            {item.file.name}
+                          </p>
+                          {item.status === 'failed' && item.error && (
+                            <p className="text-xs text-destructive">{item.error}</p>
+                          )}
+                          {item.status === 'completed' && item.result && (
+                            <p className="text-xs text-green-500">
+                              {item.result.chunks_indexed} chunks indexed
+                            </p>
+                          )}
+                        </div>
+                        {item.status === 'pending' && !isUploading && (
+                          <button
+                            onClick={() => removeFromQueue(item.id)}
+                            className="p-1 text-muted-foreground hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Progress Summary */}
+              {isUploading && (
+                <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg">
+                  <p className="text-sm text-foreground">
+                    Uploading... {completedUploads}/{uploadQueue.length} complete
+                    {failedUploads > 0 && `, ${failedUploads} failed`}
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-2">
                 <button
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={closeUploadModal}
                   disabled={isUploading}
-                  className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-muted-foreground hover:bg-secondary rounded-lg transition-colors disabled:opacity-50"
                 >
-                  Cancel
+                  {pendingUploads === 0 && completedUploads > 0 ? 'Done' : 'Cancel'}
                 </button>
-                <button
-                  onClick={handleUpload}
-                  disabled={!uploadFile || !uploadPhase || !uploadTopic || isUploading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isUploading ? 'Uploading...' : 'Upload'}
-                </button>
+                {pendingUploads > 0 && (
+                  <button
+                    onClick={handleUpload}
+                    disabled={!uploadPhase || !uploadTopic || uploadQueue.length === 0 || isUploading}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isUploading ? 'Uploading...' : `Upload ${uploadQueue.length} file${uploadQueue.length > 1 ? 's' : ''}`}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -581,18 +714,18 @@ export default function JobDetail() {
       {deleteDoc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => !isDeleting && setDeleteDoc(null)} />
-          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+          <div className="relative bg-card border border-border rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
-                <AlertCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
+              <div className="p-2 bg-destructive/10 rounded-full">
+                <AlertCircle className="h-6 w-6 text-destructive" />
               </div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-xl font-semibold text-foreground">
                 Delete Document
               </h2>
             </div>
 
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Are you sure you want to delete <strong>"{deleteDoc.title || deleteDoc.filename}"</strong>?
+            <p className="text-muted-foreground mb-6">
+              Are you sure you want to delete <strong className="text-foreground">"{deleteDoc.title || deleteDoc.filename}"</strong>?
               This will remove all {deleteDoc.chunk_count} indexed chunks.
             </p>
 
@@ -600,14 +733,14 @@ export default function JobDetail() {
               <button
                 onClick={() => setDeleteDoc(null)}
                 disabled={isDeleting}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-muted-foreground hover:bg-secondary rounded-lg transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeleteDocument}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </button>

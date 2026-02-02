@@ -48,17 +48,17 @@ export default function AuthCallback() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="max-w-md w-full space-y-4 p-8">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+            <h2 className="text-lg font-semibold text-destructive mb-2">
               Authentication Failed
             </h2>
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-destructive/80">{error}</p>
           </div>
           <button
             onClick={() => navigate('/login')}
-            className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="w-full py-2 px-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
           >
             Back to Login
           </button>
@@ -68,10 +68,10 @@ export default function AuthCallback() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-        <p className="text-gray-600 dark:text-gray-400">Completing authentication...</p>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <p className="text-muted-foreground">Completing authentication...</p>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-route
 import { AnimatePresence } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './contexts/AuthContext';
+import { KnowledgeBaseProvider } from './contexts/KnowledgeBaseContext';
 import MainNav from './components/MainNav';
 import Home from './pages/Home';
 import Dataset from './pages/Dataset';
@@ -50,7 +51,8 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <AppLayout>
+        <KnowledgeBaseProvider>
+          <AppLayout>
           <AnimatePresence mode="wait">
             <Routes>
               <Route path="/" element={<Home />} />
@@ -71,6 +73,7 @@ function App() {
             </Routes>
           </AnimatePresence>
         </AppLayout>
+        </KnowledgeBaseProvider>
       </AuthProvider>
     </Router>
   );

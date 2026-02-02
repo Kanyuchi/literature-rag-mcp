@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '../contexts/AuthContext';
+import KnowledgeBaseSelector from './KnowledgeBaseSelector';
 
 const navItems = [
   { path: '/', label: 'Home', icon: Home },
@@ -57,18 +58,25 @@ export default function MainNav() {
       className="fixed top-0 left-0 right-0 z-50 h-[72px] glass border-b border-border"
     >
       <div className="h-full px-4 md:px-6 flex items-center justify-between max-w-[1600px] mx-auto">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-3 group">
-          <motion.div 
-            className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <svg viewBox="0 0 24 24" className="w-6 h-6 text-white" fill="currentColor">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-            </svg>
-          </motion.div>
-        </Link>
+        {/* Logo + Knowledge Base Selector */}
+        <div className="flex items-center gap-4">
+          <Link to="/" className="flex items-center gap-3 group">
+            <motion.div
+              className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <svg viewBox="0 0 24 24" className="w-6 h-6 text-white" fill="currentColor">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </motion.div>
+          </Link>
+
+          {/* Knowledge Base Selector */}
+          <div className="hidden md:block">
+            <KnowledgeBaseSelector />
+          </div>
+        </div>
 
         {/* Desktop Navigation */}
         <nav className="hidden lg:flex items-center gap-1 bg-secondary/50 rounded-full p-1">

@@ -4,6 +4,8 @@ Provides endpoints for managing knowledge base jobs.
 Each job represents an isolated knowledge base with its own ChromaDB collection.
 """
 
+import os
+import io
 import logging
 from typing import Optional, List
 from pathlib import Path
@@ -25,6 +27,9 @@ from ..config import load_config
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
+
+# Check if S3 is configured
+S3_ENABLED = bool(os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'))
 
 # Load config
 config = load_config()
@@ -583,6 +588,42 @@ async def upload_to_job(
             metadatas=chunk_metadatas
         )
 
+        # Store file (S3 or local) - do this before creating document record
+        storage_key = None
+        if S3_ENABLED:
+            try:
+                from ..storage import get_storage
+                storage = get_storage()
+
+                # Upload to S3
+                with open(temp_file, 'rb') as f:
+                    storage_key = storage.upload_pdf(
+                        job_id=job_id,
+                        phase=phase,
+                        topic=topic,
+                        filename=file.filename,
+                        file_content=f
+                    )
+
+                # Remove temp file after S3 upload
+                temp_file.unlink()
+                logger.info(f"Uploaded PDF to S3: {storage_key}")
+            except Exception as e:
+                logger.warning(f"S3 upload failed, falling back to local: {e}")
+                # Fall back to local storage
+                storage_dir = Path(config.upload.storage_path) / job.collection_name
+                storage_dir.mkdir(parents=True, exist_ok=True)
+                permanent_file = storage_dir / f"{upload_id}_{file.filename}"
+                shutil.move(str(temp_file), str(permanent_file))
+                storage_key = str(permanent_file)
+        else:
+            # Local storage
+            storage_dir = Path(config.upload.storage_path) / job.collection_name
+            storage_dir.mkdir(parents=True, exist_ok=True)
+            permanent_file = storage_dir / f"{upload_id}_{file.filename}"
+            shutil.move(str(temp_file), str(permanent_file))
+            storage_key = str(permanent_file)
+
         # Create document record in database
         document = DocumentCRUD.create(
             db=db,
@@ -595,7 +636,8 @@ async def upload_to_job(
             year=metadata.year,
             phase=phase,
             topic_category=topic,
-            file_size=len(contents)
+            file_size=len(contents),
+            storage_key=storage_key
         )
 
         # Update document status
@@ -609,12 +651,6 @@ async def upload_to_job(
         job.document_count += 1
         job.chunk_count += len(chunks)
         db.commit()
-
-        # Move file to permanent storage
-        storage_dir = Path(config.upload.storage_path) / job.collection_name
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        permanent_file = storage_dir / f"{upload_id}_{file.filename}"
-        shutil.move(str(temp_file), str(permanent_file))
 
         logger.info(f"Successfully indexed {len(chunks)} chunks for job {job_id}")
 
@@ -692,6 +728,16 @@ async def delete_job_document(
             chunks_deleted = len(results["ids"])
         else:
             chunks_deleted = 0
+
+        # Try to delete from S3 if configured
+        if S3_ENABLED and document.storage_key:
+            try:
+                from ..storage import get_storage
+                storage = get_storage()
+                storage.delete_pdf(document.storage_key)
+                logger.info(f"Deleted PDF from S3: {document.storage_key}")
+            except Exception as e:
+                logger.warning(f"Failed to delete from S3: {e}")
 
         # Delete document record first
         db.delete(document)

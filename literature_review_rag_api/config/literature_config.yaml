@@ -326,6 +326,42 @@ advanced:
   max_workers: 4  # Number of parallel PDF extraction workers
 
 # ----------------------------------------------------------------------------
+# AGENTIC RAG SETTINGS
+# ----------------------------------------------------------------------------
+# Adaptive query routing with multi-agent reasoning for complex queries
+agentic:
+  # Enable agentic pipeline (replaces basic /api/chat)
+  enabled: true
+
+  # Query classification thresholds (no LLM needed - fast regex/heuristics)
+  classification:
+    simple_max_words: 15       # Queries with <=15 words may be simple
+    complex_min_topics: 3      # Queries mentioning 3+ topics are complex
+    complex_min_words: 40      # Very long queries are likely complex
+
+  # Quality thresholds for self-correction
+  thresholds:
+    evaluation_sufficient: 0.7   # Min score to proceed without retrieval retry
+    citation_accuracy_min: 0.8   # Min citation accuracy to pass validation
+    max_retrieval_retries: 2     # Max retrieval retry attempts
+    max_regeneration_retries: 1  # Max regeneration attempts after validation failure
+
+  # Agent-specific configurations
+  agents:
+    planning:
+      temperature: 0.3
+      max_tokens: 500
+    evaluation:
+      temperature: 0.1
+      max_tokens: 300
+    validation:
+      temperature: 0.1
+      max_tokens: 500
+    generation:
+      temperature: 0.2
+      max_tokens: 2048
+
+# ----------------------------------------------------------------------------
 # CUSTOM SETTINGS
 # ----------------------------------------------------------------------------
 # Add your custom settings below

@@ -235,6 +235,44 @@ class AdvancedConfig:
 
 
 @dataclass
+class AgenticClassificationConfig:
+    """Agentic query classification configuration."""
+    simple_max_words: int = 15
+    complex_min_topics: int = 3
+    complex_min_words: int = 40
+
+
+@dataclass
+class AgenticThresholdsConfig:
+    """Agentic pipeline thresholds."""
+    evaluation_sufficient: float = 0.7
+    citation_accuracy_min: float = 0.8
+    max_retrieval_retries: int = 2
+    max_regeneration_retries: int = 1
+
+
+@dataclass
+class AgenticAgentConfig:
+    """Configuration for individual agents."""
+    temperature: float = 0.2
+    max_tokens: int = 500
+
+
+@dataclass
+class AgenticConfig:
+    """Agentic RAG configuration."""
+    enabled: bool = True
+    classification: AgenticClassificationConfig = field(default_factory=AgenticClassificationConfig)
+    thresholds: AgenticThresholdsConfig = field(default_factory=AgenticThresholdsConfig)
+    agents: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {
+        "planning": {"temperature": 0.3, "max_tokens": 500},
+        "evaluation": {"temperature": 0.1, "max_tokens": 300},
+        "validation": {"temperature": 0.1, "max_tokens": 500},
+        "generation": {"temperature": 0.2, "max_tokens": 2048}
+    })
+
+
+@dataclass
 class LiteratureRAGConfig:
     """Complete configuration for Literature Review RAG system."""
     data: DataConfig
@@ -249,6 +287,7 @@ class LiteratureRAGConfig:
     upload: UploadConfig
     advanced: AdvancedConfig
     llm: LLMConfig
+    agentic: AgenticConfig = field(default_factory=AgenticConfig)
     custom: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -296,6 +335,7 @@ def load_config(config_path: Optional[str] = None) -> LiteratureRAGConfig:
         upload=_load_upload_config(yaml_config.get("upload", {})),
         advanced=_load_advanced_config(yaml_config.get("advanced", {}), env_settings),
         llm=_load_llm_config(yaml_config.get("llm", {}), env_settings),
+        agentic=_load_agentic_config(yaml_config.get("agentic", {})),
         custom=yaml_config.get("custom", {})
     )
 
@@ -480,4 +520,32 @@ def _load_upload_config(yaml_upload: dict) -> UploadConfig:
         allowed_extensions=yaml_upload.get("allowed_extensions", [".pdf"]),
         cleanup_temp=yaml_upload.get("cleanup_temp", True),
         processing_timeout=yaml_upload.get("processing_timeout", 300)
+    )
+
+
+def _load_agentic_config(yaml_agentic: dict) -> AgenticConfig:
+    """Load agentic RAG configuration."""
+    classification_data = yaml_agentic.get("classification", {})
+    thresholds_data = yaml_agentic.get("thresholds", {})
+    agents_data = yaml_agentic.get("agents", {})
+
+    return AgenticConfig(
+        enabled=yaml_agentic.get("enabled", True),
+        classification=AgenticClassificationConfig(
+            simple_max_words=classification_data.get("simple_max_words", 15),
+            complex_min_topics=classification_data.get("complex_min_topics", 3),
+            complex_min_words=classification_data.get("complex_min_words", 40)
+        ),
+        thresholds=AgenticThresholdsConfig(
+            evaluation_sufficient=thresholds_data.get("evaluation_sufficient", 0.7),
+            citation_accuracy_min=thresholds_data.get("citation_accuracy_min", 0.8),
+            max_retrieval_retries=thresholds_data.get("max_retrieval_retries", 2),
+            max_regeneration_retries=thresholds_data.get("max_regeneration_retries", 1)
+        ),
+        agents={
+            "planning": agents_data.get("planning", {"temperature": 0.3, "max_tokens": 500}),
+            "evaluation": agents_data.get("evaluation", {"temperature": 0.1, "max_tokens": 300}),
+            "validation": agents_data.get("validation", {"temperature": 0.1, "max_tokens": 500}),
+            "generation": agents_data.get("generation", {"temperature": 0.2, "max_tokens": 2048})
+        }
     )

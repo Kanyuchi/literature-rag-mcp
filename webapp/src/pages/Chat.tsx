@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, Filter, Database, Folder } from 'lucide-react';
+import { MessageSquare, Send, Loader2, Bot, User, ChevronDown, Filter, Database, Folder, Sparkles, Clock, Zap, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { useStats } from '@/hooks/useApi';
 import { useKnowledgeBase, DEFAULT_COLLECTION_ID } from '@/contexts/KnowledgeBaseContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
-import type { JobQueryResponse } from '@/lib/api';
+import type { JobQueryResponse, PipelineStats } from '@/lib/api';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +16,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -47,6 +49,8 @@ interface Message {
     title: string;
     score: number;
   }>;
+  complexity?: 'simple' | 'medium' | 'complex';
+  pipelineStats?: PipelineStats;
 }
 
 export default function Chat() {
@@ -56,6 +60,8 @@ export default function Chat() {
   const [phaseFilter, setPhaseFilter] = useState<string>('');
   const [topicFilter, setTopicFilter] = useState<string>('');
   const [synthesisMode, setSynthesisMode] = useState<'paragraph' | 'bullet_points' | 'structured'>('paragraph');
+  const [deepAnalysis, setDeepAnalysis] = useState(false);
+  const [expandedStats, setExpandedStats] = useState<string | null>(null);
 
   const { selectedKB, isDefaultSelected } = useKnowledgeBase();
   const { accessToken } = useAuth();
@@ -111,15 +117,18 @@ export default function Chat() {
     try {
       let assistantContent = '';
       let sources: Message['sources'] = [];
+      let complexity: Message['complexity'] = undefined;
+      let pipelineStats: Message['pipelineStats'] = undefined;
 
       if (isDefaultSelected) {
-        // Query default collection
+        // Query default collection with agentic pipeline
         const response = await api.query({
           question: userMessage.content,
           n_results: 5,
           synthesis_mode: synthesisMode,
           phase_filter: phaseFilter || undefined,
           topic_filter: topicFilter || undefined,
+          deep_analysis: deepAnalysis,
         });
 
         assistantContent = response.answer;
@@ -127,6 +136,8 @@ export default function Chat() {
           title: `[${source.citation_number}] ${source.authors} (${source.year}). ${source.title}`,
           score: source.citation_number,
         }));
+        complexity = response.complexity;
+        pipelineStats = response.pipeline_stats;
       } else {
         // Query job collection
         const response: JobQueryResponse = await api.queryJob(
@@ -163,6 +174,8 @@ export default function Chat() {
         role: 'assistant',
         content: assistantContent,
         sources,
+        complexity,
+        pipelineStats,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -176,7 +189,7 @@ export default function Chat() {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, selectedKB, isDefaultSelected, accessToken, phaseFilter, topicFilter, synthesisMode]);
+  }, [input, loading, selectedKB, isDefaultSelected, accessToken, phaseFilter, topicFilter, synthesisMode, deepAnalysis]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -217,6 +230,22 @@ export default function Chat() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Deep Analysis Toggle - only for default collection */}
+            {isDefaultSelected && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-secondary/50">
+                <Sparkles className={`w-4 h-4 ${deepAnalysis ? 'text-primary' : 'text-muted-foreground'}`} />
+                <Label htmlFor="deep-analysis" className="text-sm cursor-pointer">
+                  Deep Analysis
+                </Label>
+                <Switch
+                  id="deep-analysis"
+                  checked={deepAnalysis}
+                  onCheckedChange={setDeepAnalysis}
+                  className="data-[state=checked]:bg-primary"
+                />
+              </div>
+            )}
+
             {/* Synthesis Mode - only for default collection */}
             {isDefaultSelected && (
               <DropdownMenu>
@@ -327,6 +356,85 @@ export default function Chat() {
                         }`}>
                           <p className="whitespace-pre-wrap text-left">{message.content}</p>
                         </Card>
+
+                        {/* Complexity Badge and Pipeline Stats */}
+                        {message.role === 'assistant' && message.complexity && (
+                          <div className="mt-3 pt-3 border-t border-border/50">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* Complexity Badge */}
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                message.complexity === 'simple'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : message.complexity === 'medium'
+                                  ? 'bg-yellow-500/20 text-yellow-400'
+                                  : 'bg-purple-500/20 text-purple-400'
+                              }`}>
+                                {message.complexity === 'complex' && <Sparkles className="w-3 h-3" />}
+                                {message.complexity === 'simple' && <Zap className="w-3 h-3" />}
+                                {message.complexity.charAt(0).toUpperCase() + message.complexity.slice(1)}
+                              </span>
+
+                              {/* Time Badge */}
+                              {message.pipelineStats && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-secondary text-muted-foreground">
+                                  <Clock className="w-3 h-3" />
+                                  {(message.pipelineStats.total_time_ms / 1000).toFixed(1)}s
+                                </span>
+                              )}
+
+                              {/* Expandable Stats Button */}
+                              {message.pipelineStats && (
+                                <button
+                                  onClick={() => setExpandedStats(expandedStats === message.id ? null : message.id)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-secondary/50 hover:bg-secondary text-muted-foreground transition-colors"
+                                >
+                                  <ChevronRight className={`w-3 h-3 transition-transform ${expandedStats === message.id ? 'rotate-90' : ''}`} />
+                                  Details
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Expanded Pipeline Stats */}
+                            {expandedStats === message.id && message.pipelineStats && (
+                              <div className="mt-2 p-2 rounded bg-secondary/30 text-xs space-y-1">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                                  <span className="text-muted-foreground">LLM Calls:</span>
+                                  <span>{message.pipelineStats.llm_calls}</span>
+                                  <span className="text-muted-foreground">Retrieval Attempts:</span>
+                                  <span>{message.pipelineStats.retrieval_attempts}</span>
+                                  {message.pipelineStats.validation_passed !== null && (
+                                    <>
+                                      <span className="text-muted-foreground">Validation:</span>
+                                      <span className={message.pipelineStats.validation_passed ? 'text-green-400' : 'text-red-400'}>
+                                        {message.pipelineStats.validation_passed ? 'Passed' : 'Failed'}
+                                      </span>
+                                    </>
+                                  )}
+                                  {(message.pipelineStats.retries.retrieval > 0 || message.pipelineStats.retries.generation > 0) && (
+                                    <>
+                                      <span className="text-muted-foreground">Retries:</span>
+                                      <span>
+                                        {message.pipelineStats.retries.retrieval > 0 && `Retrieval: ${message.pipelineStats.retries.retrieval}`}
+                                        {message.pipelineStats.retries.retrieval > 0 && message.pipelineStats.retries.generation > 0 && ', '}
+                                        {message.pipelineStats.retries.generation > 0 && `Generation: ${message.pipelineStats.retries.generation}`}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                                {message.pipelineStats.evaluation_scores && (
+                                  <div className="mt-2 pt-2 border-t border-border/30">
+                                    <span className="text-muted-foreground block mb-1">Evaluation Scores:</span>
+                                    <div className="flex gap-3">
+                                      <span>Relevance: {(message.pipelineStats.evaluation_scores.relevance * 100).toFixed(0)}%</span>
+                                      <span>Coverage: {(message.pipelineStats.evaluation_scores.coverage * 100).toFixed(0)}%</span>
+                                      <span>Diversity: {(message.pipelineStats.evaluation_scores.diversity * 100).toFixed(0)}%</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {message.sources && message.sources.length > 0 && (
                           <div className="mt-3 pt-3 border-t border-border/50">

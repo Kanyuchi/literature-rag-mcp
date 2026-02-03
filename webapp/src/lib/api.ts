@@ -45,6 +45,24 @@ export interface QueryRequest {
   topic_filter?: string;
   year_min?: number;
   year_max?: number;
+  deep_analysis?: boolean;
+}
+
+export interface PipelineStats {
+  llm_calls: number;
+  retrieval_attempts: number;
+  validation_passed: boolean | null;
+  total_time_ms: number;
+  evaluation_scores: {
+    relevance: number;
+    coverage: number;
+    diversity: number;
+    overall: number;
+  } | null;
+  retries: {
+    retrieval: number;
+    generation: number;
+  };
 }
 
 export interface ChatResponse {
@@ -57,6 +75,8 @@ export interface ChatResponse {
     title: string;
     doc_id: string;
   }>;
+  complexity: 'simple' | 'medium' | 'complex';
+  pipeline_stats: PipelineStats;
   model: string;
   filters_applied: Record<string, string>;
 }
@@ -311,13 +331,14 @@ class ApiClient {
     return this.fetch(`/api/search?${searchParams.toString()}`);
   }
 
-  // Query (for chat) - uses LLM-powered /api/chat endpoint
+  // Query (for chat) - uses agentic LLM-powered /api/chat endpoint
   async query(request: QueryRequest): Promise<ChatResponse> {
     const searchParams = new URLSearchParams();
     searchParams.set('question', request.question);
     if (request.n_results) searchParams.set('n_sources', request.n_results.toString());
     if (request.phase_filter) searchParams.set('phase_filter', request.phase_filter);
     if (request.topic_filter) searchParams.set('topic_filter', request.topic_filter);
+    if (request.deep_analysis) searchParams.set('deep_analysis', 'true');
 
     return this.fetch(`/api/chat?${searchParams.toString()}`);
   }

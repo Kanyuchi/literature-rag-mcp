@@ -38,7 +38,9 @@ from .models import (
     UploadResponse,
     DocumentInfo,
     DocumentListResponse,
-    DeleteResponse
+    DeleteResponse,
+    AgenticChatResponse,
+    PipelineStatsResponse,
 )
 from .indexer import DocumentIndexer, create_indexer_from_rag
 from .tasks import task_store, TaskStatus, process_pdf_task, run_async_task
@@ -55,6 +57,7 @@ rag_system: LiteratureReviewRAG = None
 document_indexer: DocumentIndexer = None
 config: Any = None
 groq_client = None  # Groq LLM client
+agentic_pipeline = None  # Agentic RAG pipeline
 
 
 @asynccontextmanager
@@ -109,6 +112,27 @@ async def lifespan(app: FastAPI):
                 from groq import Groq
                 groq_client = Groq(api_key=config.llm.groq_api_key)
                 logger.info(f"Groq LLM initialized with model: {config.llm.model}")
+
+                # Initialize agentic pipeline if enabled
+                if config.agentic.enabled:
+                    from .agentic import AgenticRAGPipeline
+                    agentic_config = {
+                        "classification": {
+                            "simple_max_words": config.agentic.classification.simple_max_words,
+                            "complex_min_topics": config.agentic.classification.complex_min_topics,
+                            "complex_min_words": config.agentic.classification.complex_min_words,
+                        },
+                        "thresholds": {
+                            "evaluation_sufficient": config.agentic.thresholds.evaluation_sufficient,
+                            "citation_accuracy_min": config.agentic.thresholds.citation_accuracy_min,
+                            "max_retrieval_retries": config.agentic.thresholds.max_retrieval_retries,
+                            "max_regeneration_retries": config.agentic.thresholds.max_regeneration_retries,
+                        },
+                        "agents": config.agentic.agents,
+                    }
+                    agentic_pipeline = AgenticRAGPipeline(rag_system, groq_client, agentic_config)
+                    logger.info("Agentic RAG pipeline initialized")
+
             except ImportError:
                 logger.warning("Groq package not installed. Run: pip install groq")
             except Exception as e:
@@ -491,18 +515,35 @@ async def api_answer_with_citations(
         )
 
 
-@app.get("/api/chat")
+@app.get("/api/chat", response_model=AgenticChatResponse)
 async def api_chat_with_llm(
     question: str,
     n_sources: int = 5,
     phase_filter: str = None,
-    topic_filter: str = None
+    topic_filter: str = None,
+    deep_analysis: bool = False
 ):
     """
-    Chat with the literature using Groq LLM (Llama 3.3 70B).
+    Chat with the literature using adaptive agentic RAG.
 
-    Retrieves relevant context from the literature and generates
-    an AI-powered response with citations.
+    Routes queries based on complexity:
+    - Simple queries (<15 words, definitions): Fast path, ~2s
+    - Medium queries (standard questions): Standard RAG, ~4s
+    - Complex queries (comparative, synthesis): Full agentic pipeline with
+      planning, evaluation, and validation agents, ~6-10s
+
+    Parameters:
+    - question: Your research question
+    - n_sources: Number of sources to retrieve (default 5)
+    - phase_filter: Filter by research phase (e.g., "Phase 1")
+    - topic_filter: Filter by topic category (e.g., "Business Formation")
+    - deep_analysis: Force complex pipeline for thorough analysis
+
+    Returns:
+    - answer: Generated response with citations
+    - sources: List of cited sources
+    - complexity: Query complexity classification
+    - pipeline_stats: Execution statistics (LLM calls, time, validation status)
     """
     check_rag_ready()
 
@@ -513,14 +554,40 @@ async def api_chat_with_llm(
         )
 
     try:
-        # Build filters
         filters = {}
         if phase_filter:
             filters["phase_filter"] = phase_filter
         if topic_filter:
             filters["topic_filter"] = topic_filter
 
-        # Retrieve relevant context
+        # Use agentic pipeline if available and enabled
+        if agentic_pipeline is not None and config.agentic.enabled:
+            result = agentic_pipeline.run(
+                question=question,
+                n_sources=n_sources,
+                phase_filter=phase_filter,
+                topic_filter=topic_filter,
+                deep_analysis=deep_analysis
+            )
+
+            return AgenticChatResponse(
+                question=question,
+                answer=result["answer"],
+                sources=result["sources"],
+                complexity=result["complexity"],
+                pipeline_stats=PipelineStatsResponse(
+                    llm_calls=result["pipeline_stats"]["llm_calls"],
+                    retrieval_attempts=result["pipeline_stats"]["retrieval_attempts"],
+                    validation_passed=result["pipeline_stats"]["validation_passed"],
+                    total_time_ms=result["pipeline_stats"]["total_time_ms"],
+                    evaluation_scores=result["pipeline_stats"].get("evaluation_scores"),
+                    retries=result["pipeline_stats"]["retries"]
+                ),
+                model=config.llm.model,
+                filters_applied=filters
+            )
+
+        # Fallback to original simple chat if agentic pipeline not available
         results = rag_system.query(
             question=question,
             n_results=n_sources,
@@ -577,6 +644,9 @@ ACADEMIC LITERATURE CONTEXT:
 Please provide a well-structured answer using author-date citations (e.g., "According to Smith (2020) [1], ..."). Always include the author name and year when citing."""
 
         # Call Groq API
+        import time
+        start_time = time.time()
+
         chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -588,14 +658,24 @@ Please provide a well-structured answer using author-date citations (e.g., "Acco
         )
 
         answer = chat_completion.choices[0].message.content
+        total_time_ms = int((time.time() - start_time) * 1000)
 
-        return {
-            "question": question,
-            "answer": answer,
-            "sources": sources,
-            "model": config.llm.model,
-            "filters_applied": filters
-        }
+        return AgenticChatResponse(
+            question=question,
+            answer=answer,
+            sources=sources,
+            complexity="medium",  # Fallback always uses medium pipeline
+            pipeline_stats=PipelineStatsResponse(
+                llm_calls=1,
+                retrieval_attempts=1,
+                validation_passed=None,
+                total_time_ms=total_time_ms,
+                evaluation_scores=None,
+                retries={"retrieval": 0, "generation": 0}
+            ),
+            model=config.llm.model,
+            filters_applied=filters
+        )
 
     except Exception as e:
         logger.error(f"API chat failed: {e}")

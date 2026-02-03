@@ -455,3 +455,97 @@ class JobListResponse(BaseModel):
     """Response model for listing jobs."""
     total: int
     jobs: List[JobResponse]
+
+
+# ============================================================================
+# AGENTIC RAG MODELS
+# ============================================================================
+
+class AgenticChatRequest(BaseModel):
+    """Request model for agentic /api/chat endpoint."""
+    question: str = Field(..., description="The question to ask", min_length=1)
+    n_sources: int = Field(default=5, description="Number of sources to retrieve", ge=1, le=20)
+    phase_filter: Optional[str] = Field(default=None, description="Filter by research phase")
+    topic_filter: Optional[str] = Field(default=None, description="Filter by topic category")
+    deep_analysis: bool = Field(
+        default=False,
+        description="Force complex pipeline with full agent reasoning"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "question": "Compare business formation patterns in Ruhr Valley with other post-industrial regions",
+                "n_sources": 5,
+                "phase_filter": None,
+                "topic_filter": None,
+                "deep_analysis": True
+            }
+        }
+
+
+class PipelineStatsResponse(BaseModel):
+    """Pipeline execution statistics."""
+    llm_calls: int = Field(..., description="Number of LLM calls made")
+    retrieval_attempts: int = Field(..., description="Number of retrieval attempts")
+    validation_passed: Optional[bool] = Field(
+        default=None,
+        description="Whether validation passed (null for simple/medium queries)"
+    )
+    total_time_ms: int = Field(..., description="Total execution time in milliseconds")
+    evaluation_scores: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Context evaluation scores (relevance, coverage, diversity, overall)"
+    )
+    retries: Dict[str, int] = Field(
+        default_factory=lambda: {"retrieval": 0, "generation": 0},
+        description="Number of retries for each stage"
+    )
+
+
+class AgenticChatResponse(BaseModel):
+    """Response model for agentic /api/chat endpoint."""
+    question: str = Field(..., description="Original question")
+    answer: str = Field(..., description="Generated answer")
+    sources: List[Dict[str, Any]] = Field(..., description="Source citations")
+    complexity: str = Field(
+        ...,
+        description="Query complexity classification: simple, medium, or complex"
+    )
+    pipeline_stats: PipelineStatsResponse = Field(
+        ...,
+        description="Pipeline execution statistics"
+    )
+    model: str = Field(..., description="LLM model used")
+    filters_applied: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Filters that were applied to the query"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "question": "What is business formation?",
+                "answer": "Business formation refers to the process of creating new enterprises...",
+                "sources": [
+                    {
+                        "citation_number": 1,
+                        "authors": "Smith, J.",
+                        "year": 2020,
+                        "title": "Business Formation in Post-Industrial Regions",
+                        "doc_id": "phase2_business_001"
+                    }
+                ],
+                "complexity": "simple",
+                "pipeline_stats": {
+                    "llm_calls": 1,
+                    "retrieval_attempts": 1,
+                    "validation_passed": None,
+                    "total_time_ms": 1850,
+                    "evaluation_scores": None,
+                    "retries": {"retrieval": 0, "generation": 0}
+                },
+                "model": "llama-3.3-70b-versatile",
+                "filters_applied": {}
+            }
+        }

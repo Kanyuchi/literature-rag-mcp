@@ -51,6 +51,21 @@ class QueryClassifier:
         r"^give (?:me )?(?:a )?(?:brief )?(overview|summary)",
     ]
 
+    # Patterns indicating MEDIUM queries (not simple, but not complex either)
+    MEDIUM_PATTERNS = [
+        r"^how does\b",
+        r"^how do\b",
+        r"^how did\b",
+        r"^what (?:are|were) the (?:effects?|impacts?|consequences?|results?)\b",
+        r"\baffects?\b",
+        r"\bimpacts?\b",
+        r"\binfluences?\b",
+        r"^what factors\b",
+        r"^what role\b",
+        r"\brole of\b",
+        r"^why (?:did|does|do|is|are|was|were)\b",
+    ]
+
     # Patterns indicating COMPLEX queries
     COMPLEX_PATTERNS = [
         r"\bcompare\b.*\b(?:and|with|to|versus|vs)\b",
@@ -117,6 +132,7 @@ class QueryClassifier:
 
         # Compile patterns
         self.simple_regex = [re.compile(p, re.IGNORECASE) for p in self.SIMPLE_PATTERNS]
+        self.medium_regex = [re.compile(p, re.IGNORECASE) for p in self.MEDIUM_PATTERNS]
         self.complex_regex = [re.compile(p, re.IGNORECASE) for p in self.COMPLEX_PATTERNS]
 
     def classify(self, query: str, force_complex: bool = False) -> ClassificationResult:
@@ -150,6 +166,11 @@ class QueryClassifier:
         if complex_matches:
             signals.extend([f"complex_pattern:{p}" for p in complex_matches])
 
+        # Check for medium patterns
+        medium_matches = self._match_patterns(query_lower, self.medium_regex)
+        if medium_matches:
+            signals.extend([f"medium_pattern:{p}" for p in medium_matches])
+
         # Check for simple patterns
         simple_matches = self._match_patterns(query_lower, self.simple_regex)
         if simple_matches:
@@ -172,7 +193,7 @@ class QueryClassifier:
         # Determine complexity
         complexity, confidence = self._determine_complexity(
             signals, word_count, topic_count, question_count,
-            bool(complex_matches), bool(simple_matches)
+            bool(complex_matches), bool(medium_matches), bool(simple_matches)
         )
 
         return ClassificationResult(
@@ -220,6 +241,7 @@ class QueryClassifier:
         topic_count: int,
         question_count: int,
         has_complex_pattern: bool,
+        has_medium_pattern: bool,
         has_simple_pattern: bool
     ) -> Tuple[QueryComplexity, float]:
         """
@@ -234,12 +256,6 @@ class QueryClassifier:
                 return QueryComplexity.COMPLEX, 0.9
             return QueryComplexity.COMPLEX, 0.75
 
-        # Strong simple signals
-        if has_simple_pattern and word_count <= self.simple_max_words:
-            if topic_count <= 1:
-                return QueryComplexity.SIMPLE, 0.9
-            return QueryComplexity.SIMPLE, 0.7
-
         # Multiple topics suggest medium or complex
         if topic_count >= self.complex_min_topics:
             return QueryComplexity.COMPLEX, 0.7
@@ -247,6 +263,18 @@ class QueryClassifier:
         # Long queries with multiple questions
         if word_count >= self.complex_min_words and question_count > 1:
             return QueryComplexity.COMPLEX, 0.75
+
+        # Medium patterns indicate medium complexity
+        if has_medium_pattern:
+            if topic_count >= 2 or word_count >= 20:
+                return QueryComplexity.MEDIUM, 0.85
+            return QueryComplexity.MEDIUM, 0.75
+
+        # Strong simple signals (only if no medium pattern)
+        if has_simple_pattern and word_count <= self.simple_max_words:
+            if topic_count <= 1:
+                return QueryComplexity.SIMPLE, 0.9
+            return QueryComplexity.SIMPLE, 0.7
 
         # Very short queries are simple
         if word_count <= 10:

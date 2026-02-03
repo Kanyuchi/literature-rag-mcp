@@ -335,7 +335,9 @@ async def query_job(
     db: Session = Depends(get_db)
 ):
     """
-    Query documents in a specific job's knowledge base.
+    Query documents in a specific job's knowledge base (raw search results).
+
+    For LLM-powered answers with citations, use GET /{job_id}/chat instead.
     """
     from langchain_huggingface import HuggingFaceEmbeddings
     import torch
@@ -428,6 +430,156 @@ async def query_job(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Query failed: {str(e)}"
+        )
+
+
+@router.get("/{job_id}/chat")
+async def chat_with_job(
+    job_id: int,
+    question: str,
+    n_sources: int = 5,
+    phase_filter: Optional[str] = None,
+    topic_filter: Optional[str] = None,
+    deep_analysis: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Chat with a job's knowledge base using the agentic RAG pipeline.
+
+    Routes queries based on complexity:
+    - Simple queries: Fast path (~2s)
+    - Medium queries: Standard RAG (~4s)
+    - Complex queries: Full agentic pipeline with planning,
+      evaluation, and validation (~6-10s)
+
+    Parameters:
+    - question: Your research question
+    - n_sources: Number of sources to retrieve (default 5)
+    - phase_filter: Filter by phase
+    - topic_filter: Filter by topic category
+    - deep_analysis: Force complex pipeline for thorough analysis
+
+    Returns:
+    - answer: Generated response with citations
+    - sources: List of cited sources
+    - complexity: Query complexity classification
+    - pipeline_stats: Execution statistics
+    """
+    import os
+    from groq import Groq
+
+    from ..job_rag import JobCollectionRAG
+    from ..agentic import AgenticRAGPipeline
+    from ..models import AgenticChatResponse, PipelineStatsResponse
+
+    job = JobCRUD.get_by_id(db, job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+
+    if job.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    # Check for Groq API key
+    groq_api_key = config.llm.groq_api_key or os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM not configured. Set GROQ_API_KEY in environment."
+        )
+
+    try:
+        # Get collection
+        collection = get_job_collection(job)
+
+        if collection.count() == 0:
+            return {
+                "question": question,
+                "answer": "This knowledge base has no documents yet. Please upload some documents first.",
+                "sources": [],
+                "complexity": "simple",
+                "pipeline_stats": {
+                    "llm_calls": 0,
+                    "retrieval_attempts": 0,
+                    "validation_passed": None,
+                    "total_time_ms": 0,
+                    "evaluation_scores": None,
+                    "retries": {"retrieval": 0, "generation": 0}
+                },
+                "model": config.llm.model,
+                "filters_applied": {}
+            }
+
+        # Create RAG wrapper for the job collection
+        job_rag = JobCollectionRAG(collection)
+
+        # Initialize Groq client
+        groq_client = Groq(api_key=groq_api_key)
+
+        # Build agentic config
+        agentic_config = {
+            "classification": {
+                "simple_max_words": config.agentic.classification.simple_max_words,
+                "complex_min_topics": config.agentic.classification.complex_min_topics,
+                "complex_min_words": config.agentic.classification.complex_min_words,
+            },
+            "thresholds": {
+                "evaluation_sufficient": config.agentic.thresholds.evaluation_sufficient,
+                "citation_accuracy_min": config.agentic.thresholds.citation_accuracy_min,
+                "max_retrieval_retries": config.agentic.thresholds.max_retrieval_retries,
+                "max_regeneration_retries": config.agentic.thresholds.max_regeneration_retries,
+            },
+            "agents": config.agentic.agents,
+        }
+
+        # Create pipeline with job RAG
+        pipeline = AgenticRAGPipeline(job_rag, groq_client, agentic_config)
+
+        # Build filters dict
+        filters = {}
+        if phase_filter:
+            filters["phase_filter"] = phase_filter
+        if topic_filter:
+            filters["topic_filter"] = topic_filter
+
+        # Run pipeline
+        result = pipeline.run(
+            question=question,
+            n_sources=n_sources,
+            phase_filter=phase_filter,
+            topic_filter=topic_filter,
+            deep_analysis=deep_analysis
+        )
+
+        return {
+            "question": question,
+            "answer": result["answer"],
+            "sources": result["sources"],
+            "complexity": result["complexity"],
+            "pipeline_stats": {
+                "llm_calls": result["pipeline_stats"]["llm_calls"],
+                "retrieval_attempts": result["pipeline_stats"]["retrieval_attempts"],
+                "validation_passed": result["pipeline_stats"]["validation_passed"],
+                "total_time_ms": result["pipeline_stats"]["total_time_ms"],
+                "evaluation_scores": result["pipeline_stats"].get("evaluation_scores"),
+                "retries": result["pipeline_stats"]["retries"]
+            },
+            "model": config.llm.model,
+            "filters_applied": filters
+        }
+
+    except Exception as e:
+        logger.error(f"Chat error for job {job_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chat failed: {str(e)}"
         )
 
 

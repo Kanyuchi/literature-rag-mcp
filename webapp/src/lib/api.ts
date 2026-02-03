@@ -268,6 +268,22 @@ export interface JobQueryResponse {
   message?: string;
 }
 
+export interface JobChatResponse {
+  question: string;
+  answer: string;
+  sources: Array<{
+    citation_number: number;
+    authors: string;
+    year: number | string;
+    title: string;
+    doc_id: string;
+  }>;
+  complexity: 'simple' | 'medium' | 'complex';
+  pipeline_stats: PipelineStats;
+  model: string;
+  filters_applied: Record<string, string>;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -709,7 +725,7 @@ class ApiClient {
     return response.json();
   }
 
-  // Query a job's knowledge base
+  // Query a job's knowledge base (raw search results)
   async queryJob(
     jobId: number,
     question: string,
@@ -730,6 +746,31 @@ class ApiClient {
     if (options?.phase_filter) searchParams.set('phase_filter', options.phase_filter);
     if (options?.topic_filter) searchParams.set('topic_filter', options.topic_filter);
     return this.fetch(`/api/jobs/${jobId}/query?${searchParams.toString()}`, { headers });
+  }
+
+  // Chat with a job's knowledge base (LLM-powered with agentic pipeline)
+  async chatJob(
+    jobId: number,
+    question: string,
+    options?: {
+      n_sources?: number;
+      phase_filter?: string;
+      topic_filter?: string;
+      deep_analysis?: boolean;
+    },
+    accessToken?: string
+  ): Promise<JobChatResponse> {
+    const headers: Record<string, string> = {};
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    const searchParams = new URLSearchParams();
+    searchParams.set('question', question);
+    if (options?.n_sources) searchParams.set('n_sources', options.n_sources.toString());
+    if (options?.phase_filter) searchParams.set('phase_filter', options.phase_filter);
+    if (options?.topic_filter) searchParams.set('topic_filter', options.topic_filter);
+    if (options?.deep_analysis) searchParams.set('deep_analysis', 'true');
+    return this.fetch(`/api/jobs/${jobId}/chat?${searchParams.toString()}`, { headers });
   }
 }
 

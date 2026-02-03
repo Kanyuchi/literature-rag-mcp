@@ -8,7 +8,7 @@ import { useStats } from '@/hooks/useApi';
 import { useKnowledgeBase, DEFAULT_COLLECTION_ID } from '@/contexts/KnowledgeBaseContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
-import type { JobQueryResponse, PipelineStats } from '@/lib/api';
+import type { PipelineStats } from '@/lib/api';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -139,34 +139,26 @@ export default function Chat() {
         complexity = response.complexity;
         pipelineStats = response.pipeline_stats;
       } else {
-        // Query job collection
-        const response: JobQueryResponse = await api.queryJob(
+        // Query job collection with agentic pipeline (same as default)
+        const response = await api.chatJob(
           selectedKB.id as number,
           userMessage.content,
           {
             n_sources: 5,
             phase_filter: phaseFilter || undefined,
             topic_filter: topicFilter || undefined,
+            deep_analysis: deepAnalysis,
           },
           accessToken || undefined
         );
 
-        if (response.message) {
-          assistantContent = response.message;
-        } else if (response.results && response.results.length > 0) {
-          // Format results into a readable response
-          const resultTexts = response.results.map((r, i) => {
-            const meta = r.metadata;
-            return `**[${i + 1}] ${meta.title || 'Untitled'}** (${meta.authors || 'Unknown'}, ${meta.year || 'n.d.'})\n${r.content.substring(0, 500)}...`;
-          });
-          assistantContent = `Based on your knowledge base, here are the most relevant passages:\n\n${resultTexts.join('\n\n---\n\n')}`;
-          sources = response.results.map((r, i) => ({
-            title: `[${i + 1}] ${r.metadata.title || 'Untitled'} - Score: ${r.score.toFixed(3)}`,
-            score: r.score,
-          }));
-        } else {
-          assistantContent = 'No relevant documents found for your query.';
-        }
+        assistantContent = response.answer;
+        sources = response.sources?.map(source => ({
+          title: `[${source.citation_number}] ${source.authors} (${source.year}). ${source.title}`,
+          score: source.citation_number,
+        }));
+        complexity = response.complexity;
+        pipelineStats = response.pipeline_stats;
       }
 
       const assistantMessage: Message = {

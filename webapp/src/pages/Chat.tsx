@@ -222,21 +222,19 @@ export default function Chat() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Deep Analysis Toggle - only for default collection */}
-            {isDefaultSelected && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-secondary/50">
-                <Sparkles className={`w-4 h-4 ${deepAnalysis ? 'text-primary' : 'text-muted-foreground'}`} />
-                <Label htmlFor="deep-analysis" className="text-sm cursor-pointer">
-                  Deep Analysis
-                </Label>
-                <Switch
-                  id="deep-analysis"
-                  checked={deepAnalysis}
-                  onCheckedChange={setDeepAnalysis}
-                  className="data-[state=checked]:bg-primary"
-                />
-              </div>
-            )}
+            {/* Deep Analysis Toggle */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-secondary/50">
+              <Sparkles className={`w-4 h-4 ${deepAnalysis ? 'text-primary' : 'text-muted-foreground'}`} />
+              <Label htmlFor="deep-analysis" className="text-sm cursor-pointer">
+                Deep Analysis
+              </Label>
+              <Switch
+                id="deep-analysis"
+                checked={deepAnalysis}
+                onCheckedChange={setDeepAnalysis}
+                className="data-[state=checked]:bg-primary"
+              />
+            </div>
 
             {/* Synthesis Mode - only for default collection */}
             {isDefaultSelected && (

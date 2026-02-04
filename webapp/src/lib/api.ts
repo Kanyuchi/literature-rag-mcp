@@ -229,6 +229,7 @@ export interface JobDocument {
   topic_category: string | null;
   status: string;
   chunk_count: number;
+  total_pages: number | null;
   created_at: string;
 }
 

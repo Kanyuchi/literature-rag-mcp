@@ -317,6 +317,7 @@ async def list_job_documents(
                 "topic_category": doc.topic_category,
                 "status": doc.status,
                 "chunk_count": doc.chunk_count,
+                "total_pages": doc.total_pages,
                 "created_at": doc.created_at.isoformat()
             }
             for doc in documents
@@ -789,7 +790,8 @@ async def upload_to_job(
             phase=phase,
             topic_category=topic,
             file_size=len(contents),
-            storage_key=storage_key
+            storage_key=storage_key,
+            total_pages=metadata.total_pages
         )
 
         # Update document status

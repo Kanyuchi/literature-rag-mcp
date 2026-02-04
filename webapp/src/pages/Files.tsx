@@ -153,6 +153,7 @@ export default function Files() {
           phase: doc.phase || undefined,
           topic_category: doc.topic_category || undefined,
           filename: doc.filename,
+          total_pages: doc.total_pages || undefined,
           chunk_count: doc.chunk_count,
         })));
       }
@@ -397,8 +398,8 @@ export default function Files() {
   );
 
   const formatFileSize = (pages?: number, chunks?: number) => {
-    if (chunks) return `${chunks} chunks`;
     if (pages) return `${pages} pages`;
+    if (chunks) return `${chunks} chunks`;
     return '-';
   };
 

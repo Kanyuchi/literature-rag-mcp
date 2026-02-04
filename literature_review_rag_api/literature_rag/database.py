@@ -161,6 +161,7 @@ class Document(Base):
     # Processing
     status = Column(String(50), default=DocumentStatus.PENDING.value)
     chunk_count = Column(Integer, default=0)
+    total_pages = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
 
     # Timestamps
@@ -207,7 +208,27 @@ def init_db():
     """Initialize database tables."""
     logger.info(f"Initializing database: {DATABASE_URL}")
     Base.metadata.create_all(bind=engine)
+
+    # Auto-migrate: add columns that may not exist in older databases
+    _run_migrations()
+
     logger.info("Database tables created successfully")
+
+
+def _run_migrations():
+    """Run simple ALTER TABLE migrations for new columns."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+
+    # Check if 'total_pages' column exists in 'documents' table
+    if inspector.has_table("documents"):
+        columns = [col["name"] for col in inspector.get_columns("documents")]
+        if "total_pages" not in columns:
+            logger.info("Migrating: adding total_pages column to documents table")
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN total_pages INTEGER"))
+            logger.info("Migration complete: total_pages added")
 
 
 def get_db() -> Session:

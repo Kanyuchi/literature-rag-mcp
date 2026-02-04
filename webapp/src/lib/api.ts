@@ -303,7 +303,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(error.detail || error.error || `HTTP ${response.status}`);
     }
 
     return response.json();
@@ -442,7 +442,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(error.detail || error.error || `HTTP ${response.status}`);
     }
 
     return response.json();
@@ -466,7 +466,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(error.detail || error.error || `HTTP ${response.status}`);
     }
 
     return response.json();
@@ -639,7 +639,7 @@ class ApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(error.detail || error.error || `HTTP ${response.status}`);
     }
     return response.json();
   }
@@ -696,7 +696,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(error.detail || error.error || `HTTP ${response.status}`);
     }
 
     return response.json();
@@ -721,7 +721,7 @@ class ApiClient {
     );
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(error.detail || error.error || `HTTP ${response.status}`);
     }
     return response.json();
   }

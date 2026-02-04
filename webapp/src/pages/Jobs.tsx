@@ -254,7 +254,7 @@ export default function Jobs() {
           <div className="flex items-center justify-between">
             <div>
               <Link to="/" className="text-2xl font-bold text-primary">
-                Literature RAG
+                Retrievo
               </Link>
               <h1 className="text-lg text-muted-foreground mt-1">
                 Knowledge Bases

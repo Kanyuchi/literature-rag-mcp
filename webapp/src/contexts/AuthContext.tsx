@@ -3,8 +3,8 @@ import { api } from '../lib/api';
 import type { UserResponse, TokenResponse } from '../lib/api';
 
 // Storage keys
-const ACCESS_TOKEN_KEY = 'lit_rag_access_token';
-const REFRESH_TOKEN_KEY = 'lit_rag_refresh_token';
+const ACCESS_TOKEN_KEY = 'retrievo_access_token';
+const REFRESH_TOKEN_KEY = 'retrievo_refresh_token';
 
 interface AuthContextType {
   user: UserResponse | null;

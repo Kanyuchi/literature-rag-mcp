@@ -11,13 +11,21 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 
+from .pool import get_pool, get_pooled_embeddings, get_pooled_chroma_client
+
 logger = logging.getLogger(__name__)
 
 
 class LiteratureReviewRAG:
     """RAG system for academic literature review with term normalization."""
 
-    def __init__(self, chroma_path: str, config: dict = None, embedding_model: str = "BAAI/bge-base-en-v1.5"):
+    def __init__(
+        self,
+        chroma_path: str,
+        config: dict = None,
+        embedding_model: str = "BAAI/bge-base-en-v1.5",
+        use_pool: bool = True
+    ):
         """
         Initialize Literature Review RAG system.
 
@@ -25,26 +33,35 @@ class LiteratureReviewRAG:
             chroma_path: Path to ChromaDB persistence directory
             config: Configuration dictionary from literature_config.yaml
             embedding_model: Embedding model name (default: BGE-base)
+            use_pool: Whether to use connection pooling (default: True)
         """
         self.config = config or {}
         self.normalization_enabled = self.config.get("normalization_enable", True)
+        self._use_pool = use_pool
 
         # Device selection
         device = self.config.get("device", "auto")
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        logger.info(f"Initializing Literature Review RAG on device: {device}")
+        logger.info(f"Initializing Literature Review RAG on device: {device} (pooled: {use_pool})")
 
-        # Initialize embeddings (same as personality RAG)
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=embedding_model,
-            model_kwargs={"device": device},
-            encode_kwargs={"normalize_embeddings": True}
-        )
-
-        # Connect to ChromaDB
-        self.client = chromadb.PersistentClient(path=chroma_path)
+        # Initialize embeddings - use pool if enabled
+        if use_pool:
+            self.embeddings = get_pooled_embeddings(
+                model_name=embedding_model,
+                device=device,
+                normalize=True
+            )
+            self.client = get_pooled_chroma_client(chroma_path)
+        else:
+            # Direct initialization (for backward compatibility or testing)
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name=embedding_model,
+                model_kwargs={"device": device},
+                encode_kwargs={"normalize_embeddings": True}
+            )
+            self.client = chromadb.PersistentClient(path=chroma_path)
 
         # Get or create collection
         collection_name = self.config.get("collection_name", "literature_review_chunks")

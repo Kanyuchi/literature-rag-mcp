@@ -45,10 +45,11 @@ from .models import (
 from .indexer import DocumentIndexer, create_indexer_from_rag
 from .tasks import task_store, TaskStatus, process_pdf_task, run_async_task
 from .storage import get_storage
-from .database import get_db_session, DefaultDocumentCRUD
-from .auth import get_current_user_optional
+from .database import get_db_session, DefaultDocumentCRUD, User
+from .auth import get_current_user_optional, get_current_user
 from .logging_utils import setup_logging, request_id_ctx
 from .rate_limiter import create_rate_limiter, RateLimitMiddleware
+from .quotas import get_user_quota_summary, get_quota_service
 
 # Setup structured logging (default INFO, overridden after config load)
 setup_logging(os.getenv("LOG_LEVEL", "INFO"))
@@ -409,6 +410,34 @@ async def get_stats():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Stats retrieval failed: {str(e)}"
+        )
+
+
+@app.get("/api/quota")
+async def get_quota_usage(user: User = Depends(get_current_user)):
+    """
+    Get current quota usage for the authenticated user.
+
+    Returns usage statistics and limits for:
+    - Documents uploaded
+    - Knowledge bases created
+    - Storage used
+    - API calls today
+
+    Requires authentication.
+    """
+    try:
+        summary = get_user_quota_summary(user.id)
+        return {
+            "user_id": user.id,
+            "email": user.email,
+            **summary
+        }
+    except Exception as e:
+        logger.error(f"Quota retrieval failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Quota retrieval failed: {str(e)}"
         )
 
 

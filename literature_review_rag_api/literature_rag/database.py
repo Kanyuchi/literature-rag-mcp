@@ -74,6 +74,13 @@ class User(Base):
     name = Column(String(255), nullable=True)
     avatar_url = Column(String(500), nullable=True)
 
+    # Plan & Quotas
+    plan_tier = Column(String(50), default="free")  # free, pro, enterprise
+
+    # Usage tracking (for daily API limits)
+    api_calls_today = Column(Integer, default=0)
+    last_api_call_date = Column(DateTime, nullable=True)
+
     # Status
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)

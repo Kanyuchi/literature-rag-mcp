@@ -23,6 +23,10 @@ from ..models import (
 from ..config import load_config
 from ..storage import get_storage
 from ..indexer import DocumentIndexer
+from ..isolation import (
+    get_tenant_context, TenantContext, verify_job_access,
+    TenantScopedQuery
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,52 +177,29 @@ async def list_jobs(
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    ctx: TenantContext = Depends(get_tenant_context)
 ):
     """
     Get a specific job by ID.
+
+    Automatically verifies ownership - users can only access their own jobs.
     """
-    job = JobCRUD.get_by_id(db, job_id)
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-
-    # Check ownership
-    if job.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-
+    # Verify ownership using isolation module
+    job = verify_job_access(job_id, ctx)
     return job_to_response(job)
 
 
 @router.get("/{job_id}/term-maps")
 async def get_job_term_maps(
     job_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    ctx: TenantContext = Depends(get_tenant_context)
 ):
     """
     Get term normalization maps for a job.
+
+    Automatically verifies ownership - users can only access their own jobs.
     """
-    job = JobCRUD.get_by_id(db, job_id)
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
-
-    if job.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
+    job = verify_job_access(job_id, ctx)
 
     if not job.term_maps:
         return {"term_maps": {}}

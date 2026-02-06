@@ -48,6 +48,7 @@ from .storage import get_storage
 from .database import get_db_session, DefaultDocumentCRUD
 from .auth import get_current_user_optional
 from .logging_utils import setup_logging, request_id_ctx
+from .rate_limiter import create_rate_limiter, RateLimitMiddleware
 
 # Setup structured logging (default INFO, overridden after config load)
 setup_logging(os.getenv("LOG_LEVEL", "INFO"))
@@ -265,6 +266,11 @@ app.add_middleware(
     allow_headers=config_temp.api.cors_headers
 )
 
+# Setup rate limiting (if enabled)
+_rate_limiter = create_rate_limiter(config_temp.api.rate_limit)
+if _rate_limiter:
+    app.add_middleware(RateLimitMiddleware, rate_limiter=_rate_limiter)
+
 # Include routers
 from .routers.auth import router as auth_router
 from .routers.jobs import router as jobs_router
@@ -276,6 +282,26 @@ app.include_router(jobs_router)
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+def require_auth_if_configured(user=Depends(get_current_user_optional)):
+    """Enforce auth when configured.
+
+    Auth is REQUIRED by default. To disable, explicitly set:
+    - YAML: auth.require_auth: false
+    - Or env: AUTH_REQUIRE_AUTH=false
+    """
+    # Use loaded config if available, otherwise use temp config
+    active_config = config if config is not None else config_temp
+    require_auth = getattr(active_config.auth, "require_auth", True)  # Default True
+
+    if require_auth and user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    return user
+
 
 def check_rag_ready():
     """Check if RAG system is ready to serve requests."""
@@ -1170,26 +1196,6 @@ def check_upload_enabled():
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"S3 storage is required but not configured: {e}"
             )
-
-
-def require_auth_if_configured(user=Depends(get_current_user_optional)):
-    """Enforce auth when configured.
-
-    Auth is REQUIRED by default. To disable, explicitly set:
-    - YAML: auth.require_auth: false
-    - Or env: AUTH_REQUIRE_AUTH=false
-    """
-    # Use loaded config if available, otherwise use temp config
-    active_config = config if config is not None else config_temp
-    require_auth = getattr(active_config.auth, "require_auth", True)  # Default True
-
-    if require_auth and user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    return user
 
 
 def get_phase_names() -> Dict[str, str]:

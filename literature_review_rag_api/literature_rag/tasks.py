@@ -294,8 +294,8 @@ async def process_pdf_task(
                 message="Uploading to S3..."
             )
 
-from .storage import get_storage
-from .database import get_db_session, DefaultDocumentCRUD
+            from .storage import get_storage
+            from .database import get_db_session, DefaultDocumentCRUD
             storage = get_storage()
             try:
                 with open(temp_file_path, "rb") as f:

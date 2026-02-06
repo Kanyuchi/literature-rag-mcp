@@ -233,11 +233,13 @@ api:
   require_api_key: false  # Disabled for local development
   api_key: null  # Set via environment variable: API_KEY=your-key
 
-  # Rate limiting (requests per window)
+  # Rate limiting (per-tenant sliding window)
   rate_limit:
-    enabled: false
-    requests: 100
-    window_seconds: 60
+    enabled: false  # Set to true to enable rate limiting
+    requests: 100   # Max requests per window (anonymous users)
+    window_seconds: 60  # Time window in seconds
+    authenticated_multiplier: 2.0  # Authenticated users get 2x the limit
+    burst_multiplier: 1.5  # Allow short bursts up to requests * multiplier
 
   # API documentation
   title: "Literature Review RAG API"

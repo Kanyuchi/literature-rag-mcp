@@ -83,7 +83,20 @@ class LiteratureReviewRAG:
             "device": device
         }
 
-        logger.info("Literature Review RAG initialized successfully")
+        # Initialize hybrid search components (lazy-loaded)
+        self._bm25_retriever = None
+        self._hybrid_scorer = None
+        self._hybrid_config = {
+            "enabled": self.config.get("use_hybrid", False),
+            "method": self.config.get("hybrid_method", "rrf"),
+            "dense_weight": self.config.get("hybrid_weight", 0.7),
+            "bm25_candidates": self.config.get("bm25_candidates", 50),
+            "bm25_use_stemming": self.config.get("bm25_use_stemming", True),
+            "bm25_min_token_length": self.config.get("bm25_min_token_length", 2),
+            "indices_path": self.config.get("indices_path", "./indices")
+        }
+
+        logger.info(f"Literature Review RAG initialized successfully (hybrid: {self._hybrid_config['enabled']})")
 
     def _get_reranker(self):
         """Lazy-load the reranker when enabled."""
@@ -96,6 +109,40 @@ class LiteratureReviewRAG:
                 device=self._reranker_config.get("device")
             )
         return self._reranker
+
+    def _get_bm25_retriever(self):
+        """Lazy-load the BM25 retriever when hybrid search is enabled."""
+        if not self._hybrid_config.get("enabled"):
+            return None
+        if self._bm25_retriever is None:
+            from .bm25_retriever import BM25Retriever, BM25Config
+            from pathlib import Path
+
+            indices_path = Path(self._hybrid_config.get("indices_path", "./indices"))
+            bm25_config = BM25Config(
+                index_path=str(indices_path / "bm25_index.pkl"),
+                use_stemming=self._hybrid_config.get("bm25_use_stemming", True),
+                min_token_length=self._hybrid_config.get("bm25_min_token_length", 2)
+            )
+            self._bm25_retriever = BM25Retriever(bm25_config)
+
+            # Try to load existing index
+            if not self._bm25_retriever.load_index():
+                logger.warning("BM25 index not found. Run build_index.py to create it.")
+
+        return self._bm25_retriever
+
+    def _get_hybrid_scorer(self):
+        """Lazy-load the hybrid scorer when hybrid search is enabled."""
+        if not self._hybrid_config.get("enabled"):
+            return None
+        if self._hybrid_scorer is None:
+            from .bm25_retriever import HybridScorer
+            self._hybrid_scorer = HybridScorer(
+                method=self._hybrid_config.get("method", "rrf"),
+                dense_weight=self._hybrid_config.get("dense_weight", 0.7)
+            )
+        return self._hybrid_scorer
 
     def _normalize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize metadata fields for consistency."""
@@ -351,8 +398,23 @@ class LiteratureReviewRAG:
         elif len(conditions) > 1:
             where_filter = {"$and": conditions}
 
+        # Use hybrid search if enabled and BM25 index is ready
+        bm25_retriever = self._get_bm25_retriever()
+        if self._hybrid_config.get("enabled") and bm25_retriever and bm25_retriever.is_ready():
+            return self._hybrid_query(expanded_query, n_results, where_filter)
+
+        # Fall back to dense-only search
+        return self._dense_query(expanded_query, n_results, where_filter)
+
+    def _dense_query(
+        self,
+        query: str,
+        n_results: int,
+        where_filter: Optional[dict]
+    ) -> dict:
+        """Execute dense-only (embedding) query."""
         # Embed query
-        query_embedding = self.embeddings.embed_query(expanded_query)
+        query_embedding = self.embeddings.embed_query(query)
 
         # Determine candidate size for reranking
         rerank_top_k = self._reranker_config.get("rerank_top_k", n_results)
@@ -366,13 +428,172 @@ class LiteratureReviewRAG:
                 where=where_filter,
                 include=["documents", "metadatas", "distances"]
             )
-            logger.debug(f"Query returned {len(results['documents'][0])} results")
-            results = self._rerank_results(expanded_query, results, n_results)
+            logger.debug(f"Dense query returned {len(results['documents'][0])} results")
+            results = self._rerank_results(query, results, n_results)
             return self._postprocess_results(results, n_results)
 
         except Exception as e:
-            logger.error(f"Query failed: {e}")
+            logger.error(f"Dense query failed: {e}")
             return {"documents": [[]], "metadatas": [[]], "distances": [[]], "ids": [[]]}
+
+    def _hybrid_query(
+        self,
+        query: str,
+        n_results: int,
+        where_filter: Optional[dict]
+    ) -> dict:
+        """
+        Execute hybrid BM25 + dense query with score fusion.
+
+        Combines sparse keyword matching (BM25) with dense semantic search
+        for improved retrieval quality, especially for author names and
+        specific technical terms.
+        """
+        try:
+            bm25_retriever = self._get_bm25_retriever()
+            hybrid_scorer = self._get_hybrid_scorer()
+
+            if not bm25_retriever or not hybrid_scorer:
+                logger.warning("Hybrid components not available, falling back to dense search")
+                return self._dense_query(query, n_results, where_filter)
+
+            # 1. Get BM25 candidates
+            bm25_candidates = self._hybrid_config.get("bm25_candidates", 50)
+            bm25_results = bm25_retriever.query(query, n_results=bm25_candidates)
+            logger.debug(f"BM25 returned {len(bm25_results)} candidates")
+
+            # 2. Get dense candidates (more than needed for fusion)
+            query_embedding = self.embeddings.embed_query(query)
+            rerank_top_k = self._reranker_config.get("rerank_top_k", n_results)
+            dense_k = max(bm25_candidates, rerank_top_k * 2, n_results * 3)
+
+            dense_results_raw = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=dense_k,
+                where=where_filter,
+                include=["documents", "metadatas", "distances"]
+            )
+
+            # Convert dense results to (chunk_id, distance) format
+            dense_results = []
+            if dense_results_raw and dense_results_raw.get("metadatas"):
+                for i, (meta, dist) in enumerate(zip(
+                    dense_results_raw["metadatas"][0],
+                    dense_results_raw["distances"][0]
+                )):
+                    chunk_id = meta.get(
+                        "chunk_id",
+                        f"{meta.get('doc_id', 'unknown')}_chunk_{meta.get('chunk_index', i)}"
+                    )
+                    dense_results.append((chunk_id, dist))
+
+            logger.debug(f"Dense returned {len(dense_results)} candidates")
+
+            # 3. Combine scores with RRF or weighted fusion
+            fusion_k = max(n_results * 2, rerank_top_k)
+            hybrid_results = hybrid_scorer.combine_scores(
+                bm25_results, dense_results, n_results=fusion_k
+            )
+            logger.debug(f"Hybrid fusion produced {len(hybrid_results)} results")
+
+            # 4. Fetch full results from ChromaDB by chunk IDs
+            hybrid_chunk_ids = [chunk_id for chunk_id, _ in hybrid_results]
+
+            # Build a lookup for scores
+            score_lookup = {chunk_id: score for chunk_id, score in hybrid_results}
+
+            # Fetch documents and metadata for hybrid results
+            # We need to query by IDs, but ChromaDB .get() doesn't support where filters
+            # So we filter manually after fetching
+            all_hybrid_results = {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+            if hybrid_chunk_ids:
+                try:
+                    fetched = self.collection.get(
+                        ids=hybrid_chunk_ids,
+                        include=["documents", "metadatas"]
+                    )
+
+                    if fetched and fetched.get("ids"):
+                        # Build results in the order of hybrid_chunk_ids (preserving fusion order)
+                        id_to_idx = {id_: i for i, id_ in enumerate(fetched["ids"])}
+
+                        for chunk_id in hybrid_chunk_ids:
+                            if chunk_id in id_to_idx:
+                                idx = id_to_idx[chunk_id]
+                                meta = fetched["metadatas"][idx]
+
+                                # Apply where_filter manually if present
+                                if where_filter and not self._matches_filter(meta, where_filter):
+                                    continue
+
+                                all_hybrid_results["documents"][0].append(fetched["documents"][idx])
+                                all_hybrid_results["metadatas"][0].append(meta)
+                                # Use inverse of hybrid score as "distance" for consistency
+                                all_hybrid_results["distances"][0].append(1.0 - score_lookup.get(chunk_id, 0.5))
+
+                except Exception as e:
+                    logger.warning(f"Failed to fetch hybrid results by ID: {e}")
+                    # Fall back to dense-only
+                    return self._dense_query(query, n_results, where_filter)
+
+            # 5. Apply reranking if enabled
+            results = self._rerank_results(query, all_hybrid_results, n_results)
+
+            # 6. Postprocess and return
+            return self._postprocess_results(results, n_results)
+
+        except Exception as e:
+            logger.error(f"Hybrid query failed: {e}")
+            # Fall back to dense-only search
+            return self._dense_query(query, n_results, where_filter)
+
+    def _matches_filter(self, metadata: dict, where_filter: dict) -> bool:
+        """Check if metadata matches a ChromaDB-style where filter."""
+        if not where_filter:
+            return True
+
+        # Handle $and
+        if "$and" in where_filter:
+            return all(self._matches_filter(metadata, cond) for cond in where_filter["$and"])
+
+        # Handle $or
+        if "$or" in where_filter:
+            return any(self._matches_filter(metadata, cond) for cond in where_filter["$or"])
+
+        # Handle simple key-value or operator conditions
+        for key, condition in where_filter.items():
+            if key.startswith("$"):
+                continue  # Skip operators at top level (handled above)
+
+            value = metadata.get(key)
+
+            if isinstance(condition, dict):
+                # Operator condition like {"$gte": 2000}
+                for op, op_val in condition.items():
+                    if op == "$gte" and (value is None or value < op_val):
+                        return False
+                    if op == "$lte" and (value is None or value > op_val):
+                        return False
+                    if op == "$gt" and (value is None or value <= op_val):
+                        return False
+                    if op == "$lt" and (value is None or value >= op_val):
+                        return False
+                    if op == "$eq" and value != op_val:
+                        return False
+                    if op == "$ne" and value == op_val:
+                        return False
+                    if op == "$contains":
+                        if value is None:
+                            return False
+                        if isinstance(value, str) and op_val not in value:
+                            return False
+            else:
+                # Simple equality
+                if value != condition:
+                    return False
+
+        return True
 
     def get_context(self, question: str, **filters) -> str:
         """
@@ -634,6 +855,11 @@ class LiteratureReviewRAG:
                 metadatas=metadatas
             )
 
+            # Sync BM25 index if hybrid search is enabled
+            bm25_retriever = self._get_bm25_retriever()
+            if bm25_retriever:
+                bm25_retriever.add_chunks(chunks)
+
             logger.info(f"Added {len(chunks)} chunks to collection")
 
             return {
@@ -690,8 +916,13 @@ class LiteratureReviewRAG:
             chunk_ids = results["ids"]
             chunks_count = len(chunk_ids)
 
-            # Delete all chunks
+            # Delete all chunks from ChromaDB
             self.collection.delete(ids=chunk_ids)
+
+            # Also remove from BM25 index if hybrid search is enabled
+            bm25_retriever = self._get_bm25_retriever()
+            if bm25_retriever:
+                bm25_retriever.remove_by_doc_id(doc_id)
 
             logger.info(f"Deleted {chunks_count} chunks for document {doc_id}")
 

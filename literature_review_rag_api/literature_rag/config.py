@@ -128,6 +128,11 @@ class RetrievalConfig:
     """Retrieval configuration."""
     default_n_results: int = 5
     use_hybrid: bool = False
+    hybrid_method: str = "rrf"  # "rrf" (Reciprocal Rank Fusion) or "weighted"
+    hybrid_weight: float = 0.7  # Dense weight when using weighted method
+    bm25_candidates: int = 50  # Number of BM25 candidates to retrieve
+    bm25_use_stemming: bool = True
+    bm25_min_token_length: int = 2
     use_reranking: bool = False
     reranker_model: str = "BAAI/bge-reranker-base"
     rerank_top_k: int = 20
@@ -424,6 +429,11 @@ def _load_retrieval_config(yaml_retrieval: dict) -> RetrievalConfig:
     return RetrievalConfig(
         default_n_results=yaml_retrieval.get("default_n_results", 5),
         use_hybrid=yaml_retrieval.get("use_hybrid", False),
+        hybrid_method=yaml_retrieval.get("hybrid_method", "rrf"),
+        hybrid_weight=yaml_retrieval.get("hybrid_weight", 0.7),
+        bm25_candidates=yaml_retrieval.get("bm25_candidates", 50),
+        bm25_use_stemming=yaml_retrieval.get("bm25_use_stemming", True),
+        bm25_min_token_length=yaml_retrieval.get("bm25_min_token_length", 2),
         use_reranking=yaml_retrieval.get("use_reranking", False),
         reranker_model=yaml_retrieval.get("reranker_model", "BAAI/bge-reranker-base"),
         rerank_top_k=yaml_retrieval.get("rerank_top_k", 20),

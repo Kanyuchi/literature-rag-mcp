@@ -35,6 +35,9 @@ langchain-community>=0.0.10
 # Text processing
 tqdm>=4.65.0  # Progress bars
 
+# BM25 for hybrid search
+rank-bm25>=0.2.2
+
 # Utilities
 python-dotenv>=1.0.0
 

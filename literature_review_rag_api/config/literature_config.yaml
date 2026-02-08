@@ -121,8 +121,15 @@ retrieval:
   # Default number of results to return
   default_n_results: 5
 
-  # Search strategy (keep it simple like improved personality RAG)
-  use_hybrid: false       # Start simple: vector-only search
+  # Hybrid search (BM25 + dense embeddings)
+  use_hybrid: true        # Enable BM25 + dense hybrid search
+  hybrid_method: "rrf"    # "rrf" (Reciprocal Rank Fusion) or "weighted"
+  hybrid_weight: 0.7      # Dense weight (only used if hybrid_method=weighted)
+  bm25_candidates: 50     # Number of BM25 candidates to retrieve
+  bm25_use_stemming: true # Use Porter stemming for BM25 tokenization
+  bm25_min_token_length: 2  # Minimum token length for BM25
+
+  # Cross-encoder reranking
   use_reranking: true     # Enable cross-encoder reranking for higher quality
   reranker_model: "BAAI/bge-reranker-base"
   rerank_top_k: 20        # Retrieve top K candidates before reranking

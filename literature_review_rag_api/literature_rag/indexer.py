@@ -30,7 +30,8 @@ class DocumentIndexer:
         chroma_client: chromadb.ClientAPI,
         collection: chromadb.Collection,
         embeddings: HuggingFaceEmbeddings,
-        config: Optional[dict] = None
+        config: Optional[dict] = None,
+        bm25_retriever=None
     ):
         """
         Initialize document indexer.
@@ -40,11 +41,13 @@ class DocumentIndexer:
             collection: Existing ChromaDB collection to add documents to
             embeddings: Initialized HuggingFaceEmbeddings instance
             config: Configuration dictionary (optional)
+            bm25_retriever: Optional BM25Retriever instance for hybrid search sync
         """
         self.client = chroma_client
         self.collection = collection
         self.embeddings = embeddings
         self.config = config or {}
+        self._bm25_retriever = bm25_retriever
 
         # Initialize PDF extractor
         extraction_config = self.config.get("extraction", {})
@@ -410,6 +413,10 @@ class DocumentIndexer:
                 metadatas=metadatas
             )
 
+        # Sync BM25 index if available
+        if self._bm25_retriever:
+            self._bm25_retriever.add_chunks(chunks)
+
     def delete_document(self, doc_id: str) -> Dict[str, Any]:
         """
         Delete a document and all its chunks from the collection.
@@ -442,8 +449,12 @@ class DocumentIndexer:
             chunk_ids = results["ids"]
             chunks_count = len(chunk_ids)
 
-            # Delete all chunks
+            # Delete all chunks from ChromaDB
             self.collection.delete(ids=chunk_ids)
+
+            # Also remove from BM25 index if available
+            if self._bm25_retriever:
+                self._bm25_retriever.remove_by_doc_id(doc_id)
 
             logger.info(f"Deleted {chunks_count} chunks for document {doc_id}")
 
@@ -578,9 +589,15 @@ def create_indexer_from_rag(rag_instance, config: Optional[dict] = None) -> Docu
     Returns:
         DocumentIndexer instance
     """
+    # Get BM25 retriever if hybrid search is enabled
+    bm25_retriever = None
+    if hasattr(rag_instance, '_get_bm25_retriever'):
+        bm25_retriever = rag_instance._get_bm25_retriever()
+
     return DocumentIndexer(
         chroma_client=rag_instance.client,
         collection=rag_instance.collection,
         embeddings=rag_instance.embeddings,
-        config=config or rag_instance.config
+        config=config or rag_instance.config,
+        bm25_retriever=bm25_retriever
     )

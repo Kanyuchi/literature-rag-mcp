@@ -497,12 +497,18 @@ class LiteratureIndexBuilder:
         if self.config.storage.cache_metadata:
             self._cache_metadata(all_chunks)
 
+        # Build BM25 index for hybrid search
+        if self.config.retrieval.use_hybrid:
+            self._build_bm25_index(all_chunks)
+
         logger.info("\n" + "=" * 80)
         logger.info("INDEX BUILD COMPLETE!")
         logger.info("=" * 80)
         logger.info(f"Total chunks indexed: {self.collection.count()}")
         logger.info(f"Index location: {self.config.storage.indices_path}")
         logger.info(f"Collection name: {self.config.storage.collection_name}")
+        if self.config.retrieval.use_hybrid:
+            logger.info("BM25 index: enabled")
 
     def _cache_metadata(self, all_chunks: List[Dict]):
         """Cache metadata for faster system startup."""
@@ -535,6 +541,29 @@ class LiteratureIndexBuilder:
             pickle.dump(cache_data, f)
 
         logger.info(f"Metadata cached: {cache_path}")
+
+    def _build_bm25_index(self, all_chunks: List[Dict]):
+        """Build BM25 index for hybrid search."""
+        logger.info("\n" + "=" * 80)
+        logger.info("BUILDING BM25 INDEX FOR HYBRID SEARCH")
+        logger.info("=" * 80)
+
+        from literature_rag.bm25_retriever import BM25Retriever, BM25Config
+
+        indices_path = Path(self.config.storage.indices_path)
+        bm25_config = BM25Config(
+            index_path=str(indices_path / "bm25_index.pkl"),
+            use_stemming=self.config.retrieval.bm25_use_stemming,
+            min_token_length=self.config.retrieval.bm25_min_token_length
+        )
+
+        bm25 = BM25Retriever(bm25_config)
+        bm25.build_index(all_chunks, save=True)
+
+        stats = bm25.get_stats()
+        logger.info(f"BM25 index built: {stats['total_documents']} documents, {stats['total_tokens']} tokens")
+        logger.info(f"Average document length: {stats['avg_doc_length']:.1f} tokens")
+        logger.info(f"BM25 index saved to: {bm25_config.index_path}")
 
 
 def main():

@@ -249,7 +249,7 @@ export default function JobDetail() {
     setIsClearing(true);
 
     try {
-      const result = await api.clearJob(numericJobId, accessToken);
+      await api.clearJob(numericJobId, accessToken);
       setShowClearConfirm(false);
       await loadJob();
       // Show success message briefly
@@ -621,7 +621,7 @@ export default function JobDetail() {
                   className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground"
                 />
                 <datalist id="existing-topics">
-                  {uploadConfig?.existing_topics.map((topic) => (
+                  {Object.keys(stats?.topics || {}).map((topic) => (
                     <option key={topic} value={topic} />
                   ))}
                 </datalist>

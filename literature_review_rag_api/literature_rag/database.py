@@ -115,6 +115,9 @@ class Job(Base):
     description = Column(Text, nullable=True)
     term_maps = Column(Text, nullable=True)  # JSON string for per-job term maps
 
+    # Document extraction settings
+    extractor_type = Column(String(50), default="auto")  # "academic", "business", "generic", "auto"
+
     # ChromaDB collection name (unique per job)
     collection_name = Column(String(255), unique=True, nullable=False)
 

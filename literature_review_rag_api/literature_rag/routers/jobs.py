@@ -160,11 +160,20 @@ def require_s3_storage() -> None:
 def build_job_indexer(
     client: chromadb.ClientAPI,
     collection: chromadb.Collection,
-    job_id: int
+    job_id: int,
+    extractor_type: str = None
 ) -> DocumentIndexer:
     """Create a DocumentIndexer for a job collection using shared config.
 
-    Supports both HuggingFace (local) and OpenAI (API) embeddings based on config.
+    Supports:
+    - Both HuggingFace (local) and OpenAI (API) embeddings
+    - Multiple document types via extractor_type parameter
+
+    Args:
+        client: ChromaDB client
+        collection: ChromaDB collection
+        job_id: Job ID for BM25 retriever
+        extractor_type: Override extractor type ("academic", "business", "generic", "auto")
     """
     from ..embeddings import get_embeddings
 
@@ -185,7 +194,8 @@ def build_job_indexer(
         collection=collection,
         embeddings=embeddings,
         config=indexer_config,
-        bm25_retriever=bm25_retriever
+        bm25_retriever=bm25_retriever,
+        extractor_type=extractor_type
     )
 
 
@@ -203,6 +213,7 @@ def job_to_response(job: Job) -> JobResponse:
         name=job.name,
         description=job.description,
         term_maps=term_maps_value,
+        extractor_type=getattr(job, 'extractor_type', 'auto') or 'auto',
         collection_name=job.collection_name,
         status=job.status,
         document_count=job.document_count,
@@ -226,6 +237,12 @@ async def create_job(
     Create a new knowledge base job.
 
     Each job has its own isolated ChromaDB collection for documents.
+
+    Parameters:
+    - name: Job/knowledge base name
+    - description: Optional description
+    - term_maps: Optional term normalization maps
+    - extractor_type: Document extraction type ("academic", "business", "generic", "auto")
     """
     # Create job in database
     job = JobCRUD.create(
@@ -235,10 +252,15 @@ async def create_job(
         description=request.description
     )
 
+    # Set optional fields
     if request.term_maps:
         import json
         job.term_maps = json.dumps(request.term_maps)
-        db.commit()
+
+    if request.extractor_type:
+        job.extractor_type = request.extractor_type
+
+    db.commit()
 
     # Create ChromaDB collection
     try:
@@ -1151,8 +1173,10 @@ async def upload_to_job(
         phase_name = phase_names.get(phase, phase)
 
         # Get job collection + indexer (with BM25 for hybrid search)
+        # Use job's extractor_type for document extraction (academic, business, generic, auto)
         client, collection = get_job_collection(job)
-        indexer = build_job_indexer(client, collection, job.id)
+        extractor_type = getattr(job, 'extractor_type', 'auto') or 'auto'
+        indexer = build_job_indexer(client, collection, job.id, extractor_type=extractor_type)
 
         # Index PDF using shared pipeline (section-aware, normalization, etc.)
         result = indexer.index_pdf(

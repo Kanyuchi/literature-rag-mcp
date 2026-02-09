@@ -83,7 +83,18 @@ class DataConfig:
 
 @dataclass
 class ExtractionConfig:
-    """PDF extraction configuration."""
+    """PDF extraction configuration.
+
+    Supports multiple extractor types:
+    - "academic": Section-aware extraction for academic papers
+    - "business": Business document extraction (reports, memos)
+    - "generic": Simple full-text extraction
+    - "auto": Auto-detect based on document content
+    """
+    # Extractor selection
+    extractor_type: str = "academic"  # "academic", "business", "generic", "auto"
+
+    # Section detection settings
     use_section_detection: bool = True
     section_confidence_threshold: float = 0.7
     extract_sections: List[str] = field(default_factory=lambda: [
@@ -96,6 +107,11 @@ class ExtractionConfig:
     max_pages_per_pdf: Optional[int] = None
     skip_references: bool = True
     extract_first_n_pages_for_metadata: int = 3
+
+    # OCR settings (for scanned documents)
+    use_ocr_fallback: bool = False  # Disabled by default for speed
+    ocr_dpi: int = 200
+    ocr_language: str = "eng"
 
 
 @dataclass
@@ -401,6 +417,7 @@ def _load_data_config(yaml_data: dict, env_settings: Settings) -> DataConfig:
 def _load_extraction_config(yaml_extraction: dict) -> ExtractionConfig:
     """Load extraction configuration."""
     return ExtractionConfig(
+        extractor_type=yaml_extraction.get("extractor_type", "academic"),
         use_section_detection=yaml_extraction.get("use_section_detection", True),
         section_confidence_threshold=yaml_extraction.get("section_confidence_threshold", 0.7),
         extract_sections=yaml_extraction.get("extract_sections", [
@@ -412,7 +429,10 @@ def _load_extraction_config(yaml_extraction: dict) -> ExtractionConfig:
         fallback_to_full_text=yaml_extraction.get("fallback_to_full_text", True),
         max_pages_per_pdf=yaml_extraction.get("max_pages_per_pdf"),
         skip_references=yaml_extraction.get("skip_references", True),
-        extract_first_n_pages_for_metadata=yaml_extraction.get("extract_first_n_pages_for_metadata", 3)
+        extract_first_n_pages_for_metadata=yaml_extraction.get("extract_first_n_pages_for_metadata", 3),
+        use_ocr_fallback=yaml_extraction.get("use_ocr_fallback", False),
+        ocr_dpi=yaml_extraction.get("ocr_dpi", 200),
+        ocr_language=yaml_extraction.get("ocr_language", "eng")
     )
 
 

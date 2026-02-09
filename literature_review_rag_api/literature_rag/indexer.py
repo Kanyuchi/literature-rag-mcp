@@ -3,7 +3,9 @@
 Provides reusable indexing functionality for both batch indexing and
 runtime PDF uploads. Extracted from build_index.py patterns.
 
-Supports both HuggingFace (local) and OpenAI (API) embeddings.
+Supports:
+- Both HuggingFace (local) and OpenAI (API) embeddings
+- Multiple document types (academic, business, generic) via extractor factory
 """
 
 import logging
@@ -14,6 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.embeddings import Embeddings
 
 from .pdf_extractor import AcademicPDFExtractor, extract_keywords_from_text
+from .extractors import create_extractor, BaseExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,8 @@ class DocumentIndexer:
         collection: chromadb.Collection,
         embeddings: Embeddings,
         config: Optional[dict] = None,
-        bm25_retriever=None
+        bm25_retriever=None,
+        extractor_type: Optional[str] = None
     ):
         """
         Initialize document indexer.
@@ -43,6 +47,7 @@ class DocumentIndexer:
             embeddings: Embeddings instance (HuggingFace or OpenAI)
             config: Configuration dictionary (optional)
             bm25_retriever: Optional BM25Retriever instance for hybrid search sync
+            extractor_type: Override extractor type ("academic", "business", "generic", "auto")
         """
         self.client = chroma_client
         self.collection = collection
@@ -50,14 +55,22 @@ class DocumentIndexer:
         self.config = config or {}
         self._bm25_retriever = bm25_retriever
 
-        # Initialize PDF extractor
+        # Initialize PDF extractor based on type
         extraction_config = self.config.get("extraction", {})
-        self.pdf_extractor = AcademicPDFExtractor(config=extraction_config)
+        self._extractor_type = extractor_type or extraction_config.get("extractor_type", "academic")
+
+        # Use the extractor factory for flexibility
+        if self._extractor_type == "academic":
+            # Use the full AcademicPDFExtractor for backward compatibility
+            self.pdf_extractor = AcademicPDFExtractor(config=extraction_config)
+        else:
+            # Use the new extractor factory for other types
+            self.pdf_extractor = create_extractor(self._extractor_type, extraction_config)
 
         # Initialize text splitters
         self._init_text_splitters()
 
-        logger.info("DocumentIndexer initialized")
+        logger.info(f"DocumentIndexer initialized (extractor: {self._extractor_type})")
 
     def _init_text_splitters(self):
         """Initialize text splitters for chunking."""

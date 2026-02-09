@@ -105,6 +105,7 @@ class PDFMetadata:
 
     # Content
     abstract: Optional[str] = None
+    summary: Optional[str] = None  # For business documents
     keywords: Optional[List[str]] = None
 
     # Document stats
@@ -113,7 +114,8 @@ class PDFMetadata:
 
     # Extraction stats
     sections_detected: int = 0
-    extraction_method: str = "unknown"  # "section_aware" or "fixed_size"
+    extraction_method: str = "unknown"  # "section_aware", "full_text", "generic"
+    document_type: str = "academic"  # "academic", "business", "generic"
 
 
 class AcademicPDFExtractor:

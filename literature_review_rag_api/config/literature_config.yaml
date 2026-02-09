@@ -39,7 +39,22 @@ data:
 # PDF EXTRACTION
 # ----------------------------------------------------------------------------
 extraction:
-  # Section detection strategy
+  # ========================================================================
+  # EXTRACTOR TYPE SELECTION
+  # ========================================================================
+  # Options:
+  # - "academic": Section-aware extraction for academic papers (default)
+  #   Detects: abstract, introduction, methods, results, discussion, conclusion
+  # - "business": Business document extraction
+  #   Detects: executive summary, introduction, analysis, recommendations, conclusion
+  # - "generic": Simple full-text extraction without section detection
+  # - "auto": Auto-detect based on document content
+  #
+  # For user knowledge bases (jobs), this can be overridden per-job
+  # ========================================================================
+  extractor_type: "academic"  # Default for the main literature collection
+
+  # Section detection strategy (for academic/business extractors)
   use_section_detection: true
   section_confidence_threshold: 0.7  # 70% sections must be detected to use section-aware chunking
 
@@ -68,6 +83,12 @@ extraction:
   max_pages_per_pdf: null  # null = no limit, or set number to limit
   skip_references: true    # Skip reference/bibliography sections
   extract_first_n_pages_for_metadata: 3  # Extract metadata from first 3 pages
+
+  # OCR settings (for scanned documents)
+  # DISABLED BY DEFAULT for performance - scanned docs add 30+ sec per page
+  use_ocr_fallback: false  # Set to true if you have many scanned PDFs
+  ocr_dpi: 200             # Lower DPI = faster but less accurate
+  ocr_language: "eng"      # Language for OCR (eng, deu, fra, etc.)
 
 # ----------------------------------------------------------------------------
 # CHUNKING STRATEGY

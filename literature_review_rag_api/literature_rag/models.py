@@ -429,12 +429,17 @@ class JobCreateRequest(BaseModel):
         default=None,
         description="Optional term normalization maps for this job"
     )
+    extractor_type: Optional[str] = Field(
+        default="auto",
+        description="Document extractor type: 'academic', 'business', 'generic', or 'auto'"
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "My Research Project",
-                "description": "Knowledge base for my thesis research"
+                "description": "Knowledge base for my thesis research",
+                "extractor_type": "auto"
             }
         }
 
@@ -445,6 +450,7 @@ class JobResponse(BaseModel):
     name: str
     description: Optional[str]
     term_maps: Optional[Dict[str, List[List[str]]]] = None
+    extractor_type: Optional[str] = "auto"
     collection_name: str
     status: str
     document_count: int

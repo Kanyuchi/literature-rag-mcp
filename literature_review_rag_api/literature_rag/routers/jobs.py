@@ -62,11 +62,12 @@ def get_job_bm25_path(job_id: int) -> str:
     return str(indices_path / f"bm25_job_{job_id}.pkl")
 
 
-def get_job_bm25_retriever(job_id: int, create_if_missing: bool = True) -> Optional[BM25Retriever]:
+def get_job_bm25_retriever(job_id: int, collection=None) -> Optional[BM25Retriever]:
     """
     Get or create BM25 retriever for a job.
 
     Uses caching to avoid reloading the same index multiple times.
+    If the index doesn't exist but the collection has documents, builds it on-demand.
     """
     global _job_bm25_cache
 
@@ -93,13 +94,39 @@ def get_job_bm25_retriever(job_id: int, create_if_missing: bool = True) -> Optio
         _job_bm25_cache[job_id] = bm25
         return bm25
 
-    # If create_if_missing, initialize empty index
-    if create_if_missing:
-        logger.info(f"Created new BM25 index for job {job_id}")
+    # Index doesn't exist - build it from ChromaDB if collection has documents
+    if collection is not None and collection.count() > 0:
+        logger.info(f"Building BM25 index for job {job_id} from existing ChromaDB data...")
+        _build_bm25_from_collection(bm25, collection)
         _job_bm25_cache[job_id] = bm25
         return bm25
 
-    return None
+    # Empty job - create empty index for future uploads
+    _job_bm25_cache[job_id] = bm25
+    return bm25
+
+
+def _build_bm25_from_collection(bm25: BM25Retriever, collection) -> None:
+    """Build BM25 index from existing ChromaDB collection data."""
+    try:
+        # Fetch all documents from collection
+        all_data = collection.get(include=["documents", "metadatas"])
+
+        if not all_data or not all_data.get("documents"):
+            return
+
+        chunks = []
+        for doc, meta in zip(all_data["documents"], all_data["metadatas"]):
+            chunks.append({
+                "text": doc,
+                "metadata": meta
+            })
+
+        bm25.build_index(chunks, save=True)
+        logger.info(f"Built BM25 index with {len(chunks)} chunks from ChromaDB")
+
+    except Exception as e:
+        logger.error(f"Failed to build BM25 from collection: {e}")
 
 
 def clear_job_bm25_cache(job_id: int) -> None:
@@ -724,8 +751,8 @@ async def query_job(
         elif len(conditions) > 1:
             where_filter = {"$and": conditions}
 
-        # Check if hybrid search is enabled and BM25 index exists
-        bm25_retriever = get_job_bm25_retriever(job.id, create_if_missing=False)
+        # Get BM25 retriever (builds from ChromaDB if index doesn't exist)
+        bm25_retriever = get_job_bm25_retriever(job.id, collection=collection)
         use_hybrid = config.retrieval.use_hybrid and bm25_retriever and bm25_retriever.is_ready()
 
         if use_hybrid:
@@ -1283,8 +1310,8 @@ async def delete_job_document(
             collection.delete(ids=results["ids"])
             chunks_deleted = len(results["ids"])
 
-            # Also remove from BM25 index
-            bm25_retriever = get_job_bm25_retriever(job_id, create_if_missing=False)
+            # Also remove from BM25 index (don't pass collection - no need to build if missing)
+            bm25_retriever = get_job_bm25_retriever(job_id)
             if bm25_retriever:
                 bm25_retriever.remove_by_doc_id(doc_id)
         else:

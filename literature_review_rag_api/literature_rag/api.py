@@ -90,7 +90,15 @@ async def lifespan(app: FastAPI):
                 "reranker_model": config.retrieval.reranker_model,
                 "rerank_top_k": config.retrieval.rerank_top_k,
                 "normalization_enable": config.normalization.enable,
-                "term_maps": config.normalization.term_maps
+                "term_maps": config.normalization.term_maps,
+                # Hybrid search settings
+                "use_hybrid": config.retrieval.use_hybrid,
+                "hybrid_method": config.retrieval.hybrid_method,
+                "hybrid_weight": config.retrieval.hybrid_weight,
+                "bm25_candidates": config.retrieval.bm25_candidates,
+                "bm25_use_stemming": config.retrieval.bm25_use_stemming,
+                "bm25_min_token_length": config.retrieval.bm25_min_token_length,
+                "indices_path": config.storage.indices_path,
             },
             embedding_model=config.embedding.model
         )

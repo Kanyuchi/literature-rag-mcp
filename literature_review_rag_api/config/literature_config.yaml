@@ -135,6 +135,19 @@ embedding:
   # ========================================================================
   provider: "openai"  # "huggingface" or "openai" (auto-detects if not set)
 
+  # ========================================================================
+  # STRICT PROVIDER MODE (PRODUCTION SAFETY)
+  # ========================================================================
+  # If true, the system will FAIL FAST if the specified provider is unavailable
+  # (e.g., provider: "openai" but OPENAI_API_KEY is missing).
+  #
+  # If false (default), it will silently fall back to HuggingFace, which can
+  # cause dimension mismatch errors if indices were created with OpenAI.
+  #
+  # RECOMMENDED: Set to true in production to prevent silent dimension mismatches.
+  # ========================================================================
+  strict_provider: false  # <-- Set true for production!
+
   # OpenAI embedding settings (used when provider: "openai")
   # Models: text-embedding-3-small (1536 dims, cheap), text-embedding-3-large (3072 dims, better)
   openai_model: "text-embedding-3-small"

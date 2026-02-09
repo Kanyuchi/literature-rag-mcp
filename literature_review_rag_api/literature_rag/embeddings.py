@@ -60,7 +60,7 @@ def get_embedding_dimension(config: EmbeddingConfig) -> int:
 
 def get_embeddings(
     config: Union[EmbeddingConfig, dict],
-    fallback_to_huggingface: bool = True
+    fallback_to_huggingface: bool = None
 ) -> Embeddings:
     """Get embedding model instance based on configuration.
 
@@ -70,17 +70,25 @@ def get_embeddings(
 
     Args:
         config: EmbeddingConfig object or dict with embedding settings
-        fallback_to_huggingface: If True, fall back to HuggingFace if OpenAI fails
+        fallback_to_huggingface: If True, fall back to HuggingFace if OpenAI fails.
+            If None (default), uses config.strict_provider to determine behavior:
+            - strict_provider=True: No fallback (fail fast)
+            - strict_provider=False: Allow fallback
 
     Returns:
         Embeddings instance (HuggingFaceEmbeddings or OpenAIEmbeddings)
 
     Raises:
-        ValueError: If provider is invalid or required API key is missing
+        ValueError: If provider is invalid or required API key is missing (when strict)
     """
     # Handle dict config (for backward compatibility)
     if isinstance(config, dict):
         config = _dict_to_embedding_config(config)
+
+    # Determine fallback behavior
+    if fallback_to_huggingface is None:
+        # Use strict_provider config: if strict, don't fallback
+        fallback_to_huggingface = not getattr(config, 'strict_provider', False)
 
     provider = config.provider.lower()
 
@@ -209,6 +217,7 @@ def _dict_to_embedding_config(config_dict: dict) -> EmbeddingConfig:
     """
     return EmbeddingConfig(
         provider=config_dict.get("provider", "huggingface"),
+        strict_provider=config_dict.get("strict_provider", False),
         model=config_dict.get("model", "BAAI/bge-base-en-v1.5"),
         dimension=config_dict.get("dimension", 768),
         openai_model=config_dict.get("openai_model", "text-embedding-3-small"),

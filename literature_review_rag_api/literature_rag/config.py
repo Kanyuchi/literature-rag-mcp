@@ -143,9 +143,16 @@ class EmbeddingConfig:
     - "openai": OpenAI text-embedding-3-small (1536 dims, fast, ~$0.02/1M tokens)
 
     Note: Switching providers requires reindexing due to dimension differences.
+
+    IMPORTANT: If strict_provider is True and provider is "openai" but no API key
+    is available, the system will fail fast rather than silently falling back to
+    HuggingFace. This prevents dimension mismatch issues in production.
     """
     # Provider selection
     provider: str = "huggingface"  # "huggingface" or "openai"
+
+    # Strict mode - fail fast if provider unavailable (recommended for production)
+    strict_provider: bool = False  # Set True in production to prevent dimension mismatch
 
     # HuggingFace settings
     model: str = "BAAI/bge-base-en-v1.5"
@@ -485,8 +492,13 @@ def _load_embedding_config(yaml_embedding: dict, env_settings: Settings) -> Embe
     else:
         dimension = yaml_embedding.get("dimension", 768)
 
+    # Strict provider mode - fail fast if provider unavailable
+    # Default False for dev, set True in production to prevent dimension mismatch
+    strict_provider = yaml_embedding.get("strict_provider", False)
+
     return EmbeddingConfig(
         provider=provider,
+        strict_provider=strict_provider,
         model=yaml_embedding.get("model", "BAAI/bge-base-en-v1.5"),
         dimension=dimension,
         openai_model=openai_model,

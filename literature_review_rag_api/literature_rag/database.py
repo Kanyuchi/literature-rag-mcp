@@ -302,6 +302,11 @@ def _run_migrations():
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE jobs ADD COLUMN term_maps TEXT"))
             logger.info("Migration complete: term_maps added")
+        if "extractor_type" not in columns:
+            logger.info("Migrating: adding extractor_type column to jobs table")
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE jobs ADD COLUMN extractor_type VARCHAR(50) DEFAULT 'auto'"))
+            logger.info("Migration complete: extractor_type added")
 
     if inspector.has_table("default_documents"):
         columns = [col["name"] for col in inspector.get_columns("default_documents")]

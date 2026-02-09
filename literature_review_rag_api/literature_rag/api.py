@@ -99,8 +99,13 @@ async def lifespan(app: FastAPI):
                 "bm25_use_stemming": config.retrieval.bm25_use_stemming,
                 "bm25_min_token_length": config.retrieval.bm25_min_token_length,
                 "indices_path": config.storage.indices_path,
+                # Embedding provider settings
+                "embedding_provider": config.embedding.provider,
+                "openai_model": config.embedding.openai_model,
             },
-            embedding_model=config.embedding.model
+            embedding_model=config.embedding.model,
+            embedding_provider=config.embedding.provider,
+            openai_model=config.embedding.openai_model
         )
 
         if rag_system.is_ready():

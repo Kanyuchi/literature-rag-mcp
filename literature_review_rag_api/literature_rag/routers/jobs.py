@@ -162,16 +162,14 @@ def build_job_indexer(
     collection: chromadb.Collection,
     job_id: int
 ) -> DocumentIndexer:
-    """Create a DocumentIndexer for a job collection using shared config."""
-    from langchain_huggingface import HuggingFaceEmbeddings
-    import torch
+    """Create a DocumentIndexer for a job collection using shared config.
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    embeddings = HuggingFaceEmbeddings(
-        model_name=config.embedding.model,
-        model_kwargs={"device": device},
-        encode_kwargs={"normalize_embeddings": True}
-    )
+    Supports both HuggingFace (local) and OpenAI (API) embeddings based on config.
+    """
+    from ..embeddings import get_embeddings
+
+    # Use the unified embeddings interface
+    embeddings = get_embeddings(config.embedding)
 
     indexer_config = {
         "extraction": vars(config.extraction) if hasattr(config.extraction, "__dict__") else {},
@@ -701,8 +699,7 @@ async def query_job(
     Uses hybrid BM25 + dense search when enabled for improved retrieval.
     For LLM-powered answers with citations, use GET /{job_id}/chat instead.
     """
-    from langchain_huggingface import HuggingFaceEmbeddings
-    import torch
+    from ..embeddings import get_embeddings
 
     job = JobCRUD.get_by_id(db, job_id)
 
@@ -729,13 +726,8 @@ async def query_job(
                 "message": "No documents in this knowledge base yet"
             }
 
-        # Initialize embeddings
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        embeddings = HuggingFaceEmbeddings(
-            model_name=config.embedding.model,
-            model_kwargs={"device": device},
-            encode_kwargs={"normalize_embeddings": True}
-        )
+        # Initialize embeddings using unified interface
+        embeddings = get_embeddings(config.embedding)
 
         # Build filters
         where_filter = None

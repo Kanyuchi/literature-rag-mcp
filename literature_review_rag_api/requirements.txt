@@ -21,6 +21,10 @@ python-multipart>=0.0.6
 # LLM Integration (Groq - FREE tier with Llama 3.3 70B)
 groq>=0.4.0
 
+# OpenAI Embeddings (optional - for faster embedding generation)
+openai>=1.0.0
+langchain-openai>=0.1.0
+
 # Configuration
 pyyaml>=6.0
 

@@ -2,16 +2,18 @@
 
 Wraps a job's ChromaDB collection to provide the same interface
 as LiteratureReviewRAG, enabling use with the agentic pipeline.
+
+Supports both HuggingFace (local) and OpenAI (API) embeddings.
 """
 
 import logging
 from typing import Dict, List, Optional, Any
 
 import chromadb
-from langchain_huggingface import HuggingFaceEmbeddings
-import torch
+from langchain_core.embeddings import Embeddings
 
 from .config import load_config
+from .embeddings import get_embeddings, get_embedding_info
 
 logger = logging.getLogger(__name__)
 
@@ -36,21 +38,22 @@ class JobCollectionRAG:
         Args:
             collection: ChromaDB collection for the job
             embedding_model: Embedding model name (default from config)
+            term_maps: Optional term normalization maps for query expansion
         """
         self.collection = collection
         self.config = load_config()
         self.term_maps = term_maps or {}
         self.normalization_enabled = bool(term_maps)
 
-        # Initialize embeddings
-        embedding_model = embedding_model or self.config.embedding.model
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Initialize embeddings using unified interface
+        self.embeddings = get_embeddings(self.config.embedding)
 
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=embedding_model,
-            model_kwargs={"device": device},
-            encode_kwargs={"normalize_embeddings": True}
-        )
+        # Store embedding info for stats
+        self._embedding_info = get_embedding_info(self.embeddings)
+
+        # Determine device for reranker
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self._reranker = None
         self._reranker_config = {
@@ -60,7 +63,7 @@ class JobCollectionRAG:
             "device": device
         }
 
-        logger.info(f"JobCollectionRAG initialized for collection: {collection.name}")
+        logger.info(f"JobCollectionRAG initialized for collection: {collection.name} (embedding: {self._embedding_info['provider']})")
 
     def _load_term_maps(self, yaml_term_maps: dict) -> Dict[str, Dict[str, List[str]]]:
         term_maps = {}
@@ -206,8 +209,9 @@ class JobCollectionRAG:
                 "total_papers": len(papers),
                 "papers_by_phase": phases,
                 "papers_by_topic": topics,
-                "embedding_model": self.config.embedding.model,
-                "embedding_dimension": self.config.embedding.dimension
+                "embedding_provider": self._embedding_info.get("provider", "unknown"),
+                "embedding_model": self._embedding_info.get("model", "unknown"),
+                "embedding_dimension": self._embedding_info.get("dimension", 768)
             }
 
         except Exception as e:

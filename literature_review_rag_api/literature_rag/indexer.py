@@ -2,15 +2,16 @@
 
 Provides reusable indexing functionality for both batch indexing and
 runtime PDF uploads. Extracted from build_index.py patterns.
+
+Supports both HuggingFace (local) and OpenAI (API) embeddings.
 """
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import chromadb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-import torch
+from langchain_core.embeddings import Embeddings
 
 from .pdf_extractor import AcademicPDFExtractor, extract_keywords_from_text
 
@@ -29,7 +30,7 @@ class DocumentIndexer:
         self,
         chroma_client: chromadb.ClientAPI,
         collection: chromadb.Collection,
-        embeddings: HuggingFaceEmbeddings,
+        embeddings: Embeddings,
         config: Optional[dict] = None,
         bm25_retriever=None
     ):
@@ -39,7 +40,7 @@ class DocumentIndexer:
         Args:
             chroma_client: Existing ChromaDB client instance
             collection: Existing ChromaDB collection to add documents to
-            embeddings: Initialized HuggingFaceEmbeddings instance
+            embeddings: Embeddings instance (HuggingFace or OpenAI)
             config: Configuration dictionary (optional)
             bm25_retriever: Optional BM25Retriever instance for hybrid search sync
         """

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
 
     # LLM API Keys
     groq_api_key: Optional[str] = Field(default=None, env="GROQ_API_KEY")
+    openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
+
+    # Embedding settings
+    embedding_provider: Optional[str] = Field(default=None, env="EMBEDDING_PROVIDER")
 
     # Device
     device: str = Field(default="auto", env="DEVICE")
@@ -114,9 +118,28 @@ class ChunkingConfig:
 
 @dataclass
 class EmbeddingConfig:
-    """Embedding model configuration."""
+    """Embedding model configuration.
+
+    Supports both HuggingFace (local) and OpenAI (API) embeddings.
+
+    Provider options:
+    - "huggingface": Local BAAI/bge-base-en-v1.5 (768 dims, free, slower on CPU)
+    - "openai": OpenAI text-embedding-3-small (1536 dims, fast, ~$0.02/1M tokens)
+
+    Note: Switching providers requires reindexing due to dimension differences.
+    """
+    # Provider selection
+    provider: str = "huggingface"  # "huggingface" or "openai"
+
+    # HuggingFace settings
     model: str = "BAAI/bge-base-en-v1.5"
-    dimension: int = 768
+    dimension: int = 768  # Auto-set based on provider if not specified
+
+    # OpenAI settings
+    openai_model: str = "text-embedding-3-small"  # 1536 dims, cheap and fast
+    openai_api_key: Optional[str] = None
+
+    # Common settings
     normalize: bool = True
     device: str = "auto"
     batch_size: int = 32
@@ -413,10 +436,41 @@ def _load_chunking_config(yaml_chunking: dict) -> ChunkingConfig:
 
 
 def _load_embedding_config(yaml_embedding: dict, env_settings: Settings) -> EmbeddingConfig:
-    """Load embedding configuration with environment overrides."""
+    """Load embedding configuration with environment overrides.
+
+    Provider priority:
+    1. EMBEDDING_PROVIDER environment variable
+    2. YAML config provider setting
+    3. Default to "openai" if OPENAI_API_KEY is set, else "huggingface"
+    """
+    # Determine provider
+    provider = env_settings.embedding_provider  # Environment override first
+    if not provider:
+        provider = yaml_embedding.get("provider")
+    if not provider:
+        # Auto-detect: use OpenAI if API key is available
+        provider = "openai" if env_settings.openai_api_key else "huggingface"
+
+    # Get OpenAI API key from environment
+    openai_api_key = env_settings.openai_api_key
+
+    # Determine dimension based on provider
+    openai_model = yaml_embedding.get("openai_model", "text-embedding-3-small")
+    if provider == "openai":
+        # OpenAI dimensions: text-embedding-3-small=1536, text-embedding-3-large=3072
+        if "large" in openai_model:
+            dimension = 3072
+        else:
+            dimension = 1536
+    else:
+        dimension = yaml_embedding.get("dimension", 768)
+
     return EmbeddingConfig(
+        provider=provider,
         model=yaml_embedding.get("model", "BAAI/bge-base-en-v1.5"),
-        dimension=yaml_embedding.get("dimension", 768),
+        dimension=dimension,
+        openai_model=openai_model,
+        openai_api_key=openai_api_key,
         normalize=yaml_embedding.get("normalize", True),
         device=env_settings.device,  # Environment override
         batch_size=yaml_embedding.get("batch_size", 32),

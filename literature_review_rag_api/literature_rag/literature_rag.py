@@ -2,9 +2,12 @@
 
 Adapted from personality RAG system (100% MBTI accuracy, 15ms queries).
 Key innovation: Explicit academic term normalization for improved search relevance.
+
+Supports both HuggingFace (local) and OpenAI (API) embeddings.
 """
 
 import chromadb
+from langchain_core.embeddings import Embeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 import torch
 import re
@@ -12,6 +15,7 @@ import logging
 from typing import Dict, List, Optional, Tuple, Any
 
 from .pool import get_pool, get_pooled_embeddings, get_pooled_chroma_client
+from .embeddings import get_embedding_dimension, get_embedding_info, EMBEDDING_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +28,9 @@ class LiteratureReviewRAG:
         chroma_path: str,
         config: dict = None,
         embedding_model: str = "BAAI/bge-base-en-v1.5",
-        use_pool: bool = True
+        use_pool: bool = True,
+        embedding_provider: str = None,
+        openai_model: str = None
     ):
         """
         Initialize Literature Review RAG system.
@@ -32,36 +38,56 @@ class LiteratureReviewRAG:
         Args:
             chroma_path: Path to ChromaDB persistence directory
             config: Configuration dictionary from literature_config.yaml
-            embedding_model: Embedding model name (default: BGE-base)
+            embedding_model: HuggingFace embedding model name (default: BGE-base)
             use_pool: Whether to use connection pooling (default: True)
+            embedding_provider: "huggingface" or "openai" (default: auto-detect)
+            openai_model: OpenAI model name (default: text-embedding-3-small)
         """
         self.config = config or {}
         self.normalization_enabled = self.config.get("normalization_enable", True)
         self._use_pool = use_pool
 
-        # Device selection
+        # Device selection (for HuggingFace)
         device = self.config.get("device", "auto")
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        logger.info(f"Initializing Literature Review RAG on device: {device} (pooled: {use_pool})")
+        # Embedding provider selection
+        provider = embedding_provider or self.config.get("embedding_provider", None)
+        openai_model = openai_model or self.config.get("openai_model", "text-embedding-3-small")
+
+        logger.info(f"Initializing Literature Review RAG (pooled: {use_pool}, provider: {provider or 'auto'})")
 
         # Initialize embeddings - use pool if enabled
         if use_pool:
             self.embeddings = get_pooled_embeddings(
                 model_name=embedding_model,
                 device=device,
-                normalize=True
+                normalize=True,
+                provider=provider,
+                openai_model=openai_model
             )
             self.client = get_pooled_chroma_client(chroma_path)
         else:
             # Direct initialization (for backward compatibility or testing)
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name=embedding_model,
-                model_kwargs={"device": device},
-                encode_kwargs={"normalize_embeddings": True}
-            )
+            if provider == "openai":
+                from .embeddings import get_embeddings
+                from .config import EmbeddingConfig
+                embed_config = EmbeddingConfig(
+                    provider="openai",
+                    openai_model=openai_model
+                )
+                self.embeddings = get_embeddings(embed_config)
+            else:
+                self.embeddings = HuggingFaceEmbeddings(
+                    model_name=embedding_model,
+                    model_kwargs={"device": device},
+                    encode_kwargs={"normalize_embeddings": True}
+                )
             self.client = chromadb.PersistentClient(path=chroma_path)
+
+        # Store embedding info for stats
+        self._embedding_info = get_embedding_info(self.embeddings)
 
         # Get or create collection
         collection_name = self.config.get("collection_name", "literature_review_chunks")
@@ -741,13 +767,18 @@ class LiteratureReviewRAG:
 
     def get_stats(self) -> Dict[str, Any]:
         """Get system statistics."""
+        # Get embedding info
+        embed_info = getattr(self, '_embedding_info', None) or get_embedding_info(self.embeddings)
+
         if not self.collection:
             return {
                 "total_chunks": 0,
                 "total_papers": 0,
                 "papers_by_phase": {},
                 "papers_by_topic": {},
-                "embedding_model": self.embeddings.model_name,
+                "embedding_provider": embed_info.get("provider", "unknown"),
+                "embedding_model": embed_info.get("model", "unknown"),
+                "embedding_dimension": embed_info.get("dimension", 768),
                 "ready": False
             }
 
@@ -782,8 +813,9 @@ class LiteratureReviewRAG:
                 "total_papers": len(doc_metadata),
                 "papers_by_phase": papers_by_phase,
                 "papers_by_topic": papers_by_topic,
-                "embedding_model": self.embeddings.model_name,
-                "embedding_dimension": 768,
+                "embedding_provider": embed_info.get("provider", "unknown"),
+                "embedding_model": embed_info.get("model", "unknown"),
+                "embedding_dimension": embed_info.get("dimension", 768),
                 "ready": True
             }
 
@@ -792,7 +824,8 @@ class LiteratureReviewRAG:
             return {
                 "total_chunks": 0,
                 "total_papers": 0,
-                "embedding_model": self.embeddings.model_name,
+                "embedding_provider": embed_info.get("provider", "unknown"),
+                "embedding_model": embed_info.get("model", "unknown"),
                 "ready": False,
                 "error": str(e)
             }

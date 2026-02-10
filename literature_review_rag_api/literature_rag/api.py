@@ -290,10 +290,16 @@ app.add_middleware(
 _CSRF_COOKIE_NAME = "csrf_token"
 _CSRF_HEADER_NAME = "X-CSRF-Token"
 _CSRF_EXEMPT_PATHS = {
+    # With /api/ prefix (direct backend access)
     "/api/auth/login",
     "/api/auth/register",
     "/api/auth/oauth/google/callback",
     "/api/auth/oauth/github/callback",
+    # Without /api/ prefix (nginx strips it)
+    "/auth/login",
+    "/auth/register",
+    "/auth/oauth/google/callback",
+    "/auth/oauth/github/callback",
 }
 
 

@@ -92,6 +92,7 @@ class User(Base):
 
     # Relationships
     jobs = relationship("Job", back_populates="owner", cascade="all, delete-orphan")
+    chat_sessions = relationship("ChatSession", back_populates="owner", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email})>"
@@ -138,6 +139,7 @@ class Job(Base):
     # Relationships
     owner = relationship("User", back_populates="jobs")
     documents = relationship("Document", back_populates="job", cascade="all, delete-orphan")
+    chat_sessions = relationship("ChatSession", back_populates="job", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Job(id={self.id}, name={self.name})>"
@@ -185,6 +187,46 @@ class Document(Base):
 
     def __repr__(self):
         return f"<Document(id={self.id}, filename={self.filename})>"
+
+
+class ChatSession(Base):
+    """Chat session for a job (knowledge base)."""
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
+
+    title = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    owner = relationship("User", back_populates="chat_sessions")
+    job = relationship("Job", back_populates="chat_sessions")
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<ChatSession(id={self.id}, user_id={self.user_id}, job_id={self.job_id})>"
+
+
+class ChatMessage(Base):
+    """Chat message stored in a session."""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False)
+
+    role = Column(String(50), nullable=False)  # user, assistant, system
+    content = Column(Text, nullable=False)
+    citations_json = Column(Text, nullable=True)
+    model = Column(String(255), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("ChatSession", back_populates="messages")
+
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, session_id={self.session_id}, role={self.role})>"
 
 
 class DefaultDocument(Base):
@@ -488,6 +530,81 @@ class DocumentCRUD:
         """Delete a document record."""
         db.delete(document)
         db.commit()
+
+
+class ChatSessionCRUD:
+    """CRUD operations for ChatSession model."""
+
+    @staticmethod
+    def create(db: Session, user_id: int, job_id: int, title: Optional[str] = None) -> ChatSession:
+        """Create a new chat session."""
+        session = ChatSession(
+            user_id=user_id,
+            job_id=job_id,
+            title=title
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        return session
+
+    @staticmethod
+    def get_by_id(db: Session, session_id: int) -> Optional[ChatSession]:
+        """Get session by ID."""
+        return db.query(ChatSession).filter(ChatSession.id == session_id).first()
+
+    @staticmethod
+    def list_for_job(db: Session, user_id: int, job_id: int) -> List[ChatSession]:
+        """List sessions for a job and user."""
+        return db.query(ChatSession).filter(
+            ChatSession.user_id == user_id,
+            ChatSession.job_id == job_id
+        ).order_by(ChatSession.updated_at.desc()).all()
+
+    @staticmethod
+    def touch(db: Session, session: ChatSession):
+        """Update session timestamp."""
+        session.updated_at = datetime.utcnow()
+        db.commit()
+
+    @staticmethod
+    def delete(db: Session, session: ChatSession):
+        """Delete a chat session."""
+        db.delete(session)
+        db.commit()
+
+
+class ChatMessageCRUD:
+    """CRUD operations for ChatMessage model."""
+
+    @staticmethod
+    def create(
+        db: Session,
+        session_id: int,
+        role: str,
+        content: str,
+        citations_json: Optional[str] = None,
+        model: Optional[str] = None
+    ) -> ChatMessage:
+        """Create a new chat message."""
+        message = ChatMessage(
+            session_id=session_id,
+            role=role,
+            content=content,
+            citations_json=citations_json,
+            model=model
+        )
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+        return message
+
+    @staticmethod
+    def list_for_session(db: Session, session_id: int) -> List[ChatMessage]:
+        """List messages for a session."""
+        return db.query(ChatMessage).filter(
+            ChatMessage.session_id == session_id
+        ).order_by(ChatMessage.created_at.asc()).all()
 
 
 class DefaultDocumentCRUD:

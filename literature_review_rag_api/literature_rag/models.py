@@ -560,3 +560,62 @@ class AgenticChatResponse(BaseModel):
                 "filters_applied": {}
             }
         }
+
+
+# ============================================================================
+# CHAT MEMORY MODELS
+# ============================================================================
+
+class ChatSessionCreateRequest(BaseModel):
+    """Request model for creating a chat session."""
+    job_id: int = Field(..., description="Knowledge base (job) id")
+    title: Optional[str] = Field(default=None, description="Session title")
+
+
+class ChatSessionResponse(BaseModel):
+    """Response model for a chat session."""
+    id: int
+    job_id: int
+    title: Optional[str]
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class ChatSessionListResponse(BaseModel):
+    """Response model for listing chat sessions."""
+    total: int
+    sessions: List[ChatSessionResponse]
+
+
+class ChatMessageCreateRequest(BaseModel):
+    """Request model for adding a chat message."""
+    role: str = Field(..., description="Message role: user, assistant, system")
+    content: str = Field(..., description="Message content")
+    citations: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Optional citations array for assistant messages"
+    )
+    model: Optional[str] = Field(default=None, description="Model used for the message")
+
+
+class ChatMessageResponse(BaseModel):
+    """Response model for a chat message."""
+    id: int
+    session_id: int
+    role: str
+    content: str
+    citations: Optional[List[Dict[str, Any]]] = None
+    model: Optional[str] = None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class ChatSessionDetailResponse(BaseModel):
+    """Response model for a chat session with messages."""
+    session: ChatSessionResponse
+    messages: List[ChatMessageResponse]

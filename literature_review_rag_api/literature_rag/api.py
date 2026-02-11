@@ -85,6 +85,8 @@ async def lifespan(app: FastAPI):
             chroma_path=config.storage.indices_path,
             config={
                 "collection_name": config.storage.collection_name,
+                "cache_metadata": config.storage.cache_metadata,
+                "metadata_cache_path": config.storage.metadata_cache_path,
                 "expand_queries": config.retrieval.expand_queries,
                 "max_expansions": config.retrieval.max_expansions,
                 "use_reranking": config.retrieval.use_reranking,
@@ -350,9 +352,11 @@ if _rate_limiter:
 # Include routers
 from .routers.auth import router as auth_router
 from .routers.jobs import router as jobs_router
+from .routers.chats import router as chats_router
 
 app.include_router(auth_router)
 app.include_router(jobs_router)
+app.include_router(chats_router)
 
 
 # ============================================================================
@@ -460,27 +464,14 @@ async def get_stats():
 
     try:
         stats = rag_system.get_stats()
-
-        # Calculate year range from metadata
-        all_data = rag_system.collection.get(include=["metadatas"])
-        years = []
-        for meta in all_data["metadatas"]:
-            year = meta.get("year")
-            if year and isinstance(year, int) and year > 1900:
-                years.append(year)
-
-        year_min = min(years) if years else 0
-        year_max = max(years) if years else 0
+        year_range = stats.get("year_range", {"min": 0, "max": 0})
 
         return {
             "total_papers": stats.get("total_papers", 0),
             "total_chunks": stats.get("total_chunks", 0),
             "phases": stats.get("papers_by_phase", {}),
             "topics": stats.get("papers_by_topic", {}),
-            "year_range": {
-                "min": year_min,
-                "max": year_max
-            }
+            "year_range": year_range
         }
     except Exception as e:
         logger.error(f"Stats retrieval failed: {e}")

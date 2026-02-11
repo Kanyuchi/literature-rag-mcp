@@ -154,7 +154,7 @@ class JobCollectionRAG:
         # Query collection
         rerank_enabled = self._reranker_config.get("enabled") if use_reranking is None else use_reranking
         rerank_top_k = self._reranker_config.get("rerank_top_k", n_results)
-        candidate_k = max(n_results, rerank_top_k) if rerank_enabled else n_results
+        candidate_k = max(n_results, rerank_top_k * 2) if rerank_enabled else max(n_results * 3, 10)
 
         results = self.collection.query(
             query_embeddings=[query_embedding],
@@ -162,6 +162,8 @@ class JobCollectionRAG:
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
+
+        results = self._postprocess_results(results, n_results)
 
         # Rerank if enabled
         reranker = self._get_reranker() if rerank_enabled else None
@@ -180,6 +182,54 @@ class JobCollectionRAG:
             }
 
         return results
+
+    def _postprocess_results(self, results: dict, n_results: int) -> dict:
+        """Dedupe results by doc_id and apply a light quality-aware rerank."""
+        if not results or not results.get("documents") or not results["documents"][0]:
+            return results
+
+        items = []
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0]
+        ):
+            score = 1 - dist
+            total_pages = meta.get("total_pages") or 0
+            try:
+                total_pages = int(total_pages)
+            except (TypeError, ValueError):
+                total_pages = 0
+            if total_pages and total_pages < 5:
+                score *= 0.7
+            if meta.get("doi"):
+                score *= 1.05
+            items.append((score, doc, meta, dist, meta.get("doc_id")))
+
+        items.sort(key=lambda item: item[0], reverse=True)
+
+        deduped_docs = []
+        deduped_metas = []
+        deduped_dists = []
+        seen_doc_ids = set()
+
+        for _, doc, meta, dist, doc_id in items:
+            if doc_id and doc_id in seen_doc_ids:
+                continue
+            if doc_id:
+                seen_doc_ids.add(doc_id)
+            deduped_docs.append(doc)
+            deduped_metas.append(meta)
+            deduped_dists.append(dist)
+            if len(deduped_docs) >= n_results:
+                break
+
+        return {
+            "documents": [deduped_docs],
+            "metadatas": [deduped_metas],
+            "distances": [deduped_dists],
+            "ids": results.get("ids", [[]])
+        }
 
     def get_stats(self) -> Dict[str, Any]:
         """

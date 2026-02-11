@@ -123,8 +123,21 @@ export default function Chat() {
   const formatSessionTitle = (session: { title?: string | null; created_at: string; id: number }) => {
     if (session.title && session.title.trim().length > 0) return session.title;
     const created = new Date(session.created_at);
-    const fallback = isNaN(created.getTime()) ? `Session ${session.id}` : created.toLocaleString();
-    return `Session ${fallback}`;
+    if (isNaN(created.getTime())) return `Session ${session.id}`;
+    const formatted = created.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return `Session ${formatted}`;
+  };
+
+  const buildSessionTitle = (text: string) => {
+    const normalized = text.trim().replace(/\s+/g, ' ');
+    if (!normalized) return undefined;
+    return normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized;
   };
 
   const hydrateSessionMessages = (storedMessages: Array<{ id: number; role: string; content: string; citations?: Array<Record<string, unknown>> | null }>) => {
@@ -210,9 +223,25 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      if (activeSession && accessToken) {
+      let sessionToUse = activeSession;
+      if (!isDefaultSelected && selectedKB && accessToken && !sessionToUse) {
+        try {
+          const newSession = await api.createChatSession(
+            selectedKB.id as number,
+            buildSessionTitle(userMessage.content),
+            accessToken
+          );
+          setSessions((prev) => [newSession, ...prev]);
+          setActiveSession(newSession);
+          sessionToUse = newSession;
+        } catch (err) {
+          console.error('Failed to auto-create chat session:', err);
+        }
+      }
+
+      if (sessionToUse && accessToken) {
         await api.addChatMessage(
-          activeSession.id,
+          sessionToUse.id,
           {
             role: 'user',
             content: userMessage.content,
@@ -296,9 +325,9 @@ export default function Chat() {
 
       setMessages(prev => [...prev, assistantMessage]);
 
-      if (activeSession && accessToken) {
+      if (sessionToUse && accessToken) {
         await api.addChatMessage(
-          activeSession.id,
+          sessionToUse.id,
           {
             role: 'assistant',
             content: assistantContent,

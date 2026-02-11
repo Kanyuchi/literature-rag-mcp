@@ -246,6 +246,18 @@ class GenericExtractor(BaseExtractor):
         if not metadata.title:
             metadata.title = self._title_from_filename(metadata.filename)
 
+        # DOI from text (often in header/abstract)
+        if not metadata.doi and first_pages_text:
+            metadata.doi = self._extract_doi_from_text(first_pages_text)
+
+        # Authors from text
+        if not metadata.authors and first_pages_text:
+            metadata.authors = self._extract_authors_from_text(first_pages_text, metadata.title)
+
+        # Year from text (fallback if not found via PDF properties)
+        if not metadata.year and first_pages_text:
+            metadata.year = self._extract_year_from_text(first_pages_text)
+
         # Try to extract summary/abstract
         if first_pages_text and not metadata.summary:
             # Look for executive summary or abstract
@@ -326,6 +338,86 @@ class GenericExtractor(BaseExtractor):
         text = re.sub(r' {2,}', ' ', text)
         return text.strip()
 
+    def _extract_doi_from_text(self, text: str) -> Optional[str]:
+        """Extract DOI from text."""
+        # DOI pattern: 10.<digits>/<suffix>
+        match = re.search(r'\b10\.\d{4,9}/[^\s"\'<>]+', text, re.IGNORECASE)
+        if not match:
+            return None
+        doi = match.group(0).strip().rstrip(').,;')
+        return doi.lower()
+
+    def _extract_year_from_text(self, text: str) -> Optional[int]:
+        """Extract likely publication year from text."""
+        current_year = datetime.now().year
+        # Prefer copyright year
+        copyright_match = re.search(r'©\s*(\d{4})', text)
+        if copyright_match:
+            year = int(copyright_match.group(1))
+            if 1900 <= year <= current_year:
+                return year
+
+        # Fallback to first plausible year
+        for year_match in re.finditer(r'\b(19|20)\d{2}\b', text):
+            year = int(year_match.group(0))
+            if 1900 <= year <= current_year:
+                return year
+        return None
+
+    def _extract_authors_from_text(self, text: str, title: Optional[str]) -> Optional[List[str]]:
+        """Extract author names from the first page text."""
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        if not lines:
+            return None
+
+        # Identify title line index if possible
+        title_idx = None
+        if title:
+            for i, line in enumerate(lines[:40]):
+                if title.lower() in line.lower():
+                    title_idx = i
+                    break
+
+        # Candidate lines: a few lines after title, or first 10 lines
+        start = title_idx + 1 if title_idx is not None else 0
+        candidate_lines = []
+        for line in lines[start:start + 8]:
+            if re.search(r'(?i)abstract|keywords|introduction|correspondence|received|accepted', line):
+                break
+            # Skip affiliations/emails
+            if '@' in line or re.search(r'(?i)university|department|faculty|institute|school|centre|center', line):
+                continue
+            # Skip lines that are too long or too short
+            if len(line) < 5 or len(line) > 120:
+                continue
+            candidate_lines.append(line)
+
+        if not candidate_lines:
+            # Try "By ..." pattern anywhere in first 20 lines
+            for line in lines[:20]:
+                by_match = re.match(r'(?i)^by\s+(.+)$', line)
+                if by_match:
+                    candidate_lines = [by_match.group(1).strip()]
+                    break
+
+        if not candidate_lines:
+            return None
+
+        # Combine and split into authors
+        authors_text = " ".join(candidate_lines)
+        authors_text = re.sub(r'\s+', ' ', authors_text)
+        authors_text = re.sub(r'\d+', '', authors_text).strip()
+
+        # Split on common delimiters
+        raw_authors = re.split(r'\s*(?:,|;|&|and)\s*', authors_text, flags=re.IGNORECASE)
+        authors = []
+        for author in raw_authors:
+            author = author.strip()
+            # Require at least a first and last name-ish
+            if len(author.split()) >= 2 and re.search(r'[A-Za-z]', author):
+                authors.append(author)
+
+        return authors or None
 
 class BusinessExtractor(GenericExtractor):
     """Extractor optimized for business documents.

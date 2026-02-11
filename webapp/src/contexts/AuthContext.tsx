@@ -15,6 +15,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const ACCESS_TOKEN_KEY = 'lit_rag_access_token';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserResponse | null>(null);
@@ -24,12 +25,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Save tokens in memory (cookies are set by the server)
   const saveTokens = useCallback((tokens: TokenResponse) => {
     setAccessToken(tokens.access_token);
+    localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
   }, []);
 
   // Clear tokens from memory
   const clearTokens = useCallback(() => {
     setAccessToken(null);
     setUser(null);
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
   }, []);
 
   // Fetch current user with token
@@ -48,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const tokens = await api.refreshToken();
       saveTokens(tokens);
-      const userData = await fetchUser();
+      const userData = await fetchUser(tokens.access_token);
       if (userData) {
         setUser(userData);
         return true;
@@ -64,15 +67,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Initialize auth state on mount
   useEffect(() => {
     const initAuth = async () => {
-      const userData = await fetchUser();
-      if (userData) {
-        setUser(userData);
-      } else {
-        // Try refresh via cookies
-        const refreshed = await refreshAuth();
-        if (!refreshed) {
-          clearTokens();
+      const savedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+      if (savedToken) {
+        setAccessToken(savedToken);
+        const userData = await fetchUser(savedToken);
+        if (userData) {
+          setUser(userData);
+          setIsLoading(false);
+          return;
         }
+      }
+
+      // Try refresh via cookies
+      const refreshed = await refreshAuth();
+      if (!refreshed) {
+        clearTokens();
       }
 
       setIsLoading(false);
@@ -85,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const tokens = await api.login(email, password);
     saveTokens(tokens);
-    const userData = await fetchUser();
+    const userData = await fetchUser(tokens.access_token);
     if (userData) {
       setUser(userData);
     } else {
@@ -97,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(async (email: string, password: string, name?: string) => {
     const tokens = await api.register(email, password, name);
     saveTokens(tokens);
-    const userData = await fetchUser();
+    const userData = await fetchUser(tokens.access_token);
     if (userData) {
       setUser(userData);
     } else {
@@ -123,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const tokens = await api.handleOAuthCallback(provider, code, state);
     saveTokens(tokens);
-    const userData = await fetchUser();
+    const userData = await fetchUser(tokens.access_token);
     if (userData) {
       setUser(userData);
     } else {

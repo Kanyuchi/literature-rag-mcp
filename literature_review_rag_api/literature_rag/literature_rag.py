@@ -753,12 +753,60 @@ class LiteratureReviewRAG:
         # Get embedding info
         embed_info = getattr(self, '_embedding_info', None) or get_embedding_info(self.embeddings)
 
+        def _stats_from_cache() -> Optional[Dict[str, Any]]:
+            if not self.config.get("cache_metadata"):
+                return None
+            cache_path = self.config.get("metadata_cache_path")
+            if not cache_path:
+                return None
+            try:
+                from pathlib import Path
+                import pickle
+
+                cache_file = Path(cache_path)
+                if not cache_file.exists():
+                    return None
+                with cache_file.open("rb") as f:
+                    cache = pickle.load(f)
+
+                papers = cache.get("papers", [])
+                papers_by_phase: Dict[str, int] = {}
+                papers_by_topic: Dict[str, int] = {}
+                years: List[int] = []
+
+                for paper in papers:
+                    phase = paper.get("phase") or "Unknown"
+                    papers_by_phase[phase] = papers_by_phase.get(phase, 0) + 1
+
+                    topic = paper.get("topic_category") or "Unknown"
+                    papers_by_topic[topic] = papers_by_topic.get(topic, 0) + 1
+
+                    year = paper.get("year")
+                    if isinstance(year, int) and year > 1900:
+                        years.append(year)
+
+                year_range = {
+                    "min": min(years) if years else 0,
+                    "max": max(years) if years else 0,
+                }
+
+                return {
+                    "total_chunks": cache.get("total_chunks", 0),
+                    "total_papers": cache.get("total_papers", len(papers)),
+                    "papers_by_phase": papers_by_phase,
+                    "papers_by_topic": papers_by_topic,
+                    "year_range": year_range,
+                }
+            except Exception:
+                return None
+
         if not self.collection:
             return {
                 "total_chunks": 0,
                 "total_papers": 0,
                 "papers_by_phase": {},
                 "papers_by_topic": {},
+                "year_range": {"min": 0, "max": 0},
                 "embedding_provider": embed_info.get("provider", "unknown"),
                 "embedding_model": embed_info.get("model", "unknown"),
                 "embedding_dimension": embed_info.get("dimension", 768),
@@ -766,8 +814,33 @@ class LiteratureReviewRAG:
             }
 
         try:
+            # Prefer cached metadata for fast stats if available.
+            cached = _stats_from_cache()
+            if cached is not None:
+                return {
+                    **cached,
+                    "embedding_provider": embed_info.get("provider", "unknown"),
+                    "embedding_model": embed_info.get("model", "unknown"),
+                    "embedding_dimension": embed_info.get("dimension", 768),
+                    "ready": True,
+                }
+
             # Get total count
             count = self.collection.count()
+
+            # Avoid expensive full scans for very large collections when cache is missing.
+            if count > 5000:
+                return {
+                    "total_chunks": count,
+                    "total_papers": 0,
+                    "papers_by_phase": {},
+                    "papers_by_topic": {},
+                    "year_range": {"min": 0, "max": 0},
+                    "embedding_provider": embed_info.get("provider", "unknown"),
+                    "embedding_model": embed_info.get("model", "unknown"),
+                    "embedding_dimension": embed_info.get("dimension", 768),
+                    "ready": True,
+                }
 
             # Get all metadata for statistics
             all_metadata = self.collection.get(
@@ -778,6 +851,7 @@ class LiteratureReviewRAG:
             papers_by_phase = {}
             papers_by_topic = {}
             doc_metadata = {}
+            years: List[int] = []
 
             for meta in all_metadata["metadatas"]:
                 doc_id = meta.get("doc_id")
@@ -790,12 +864,21 @@ class LiteratureReviewRAG:
 
                 topic = meta.get("topic_category", "Unknown")
                 papers_by_topic[topic] = papers_by_topic.get(topic, 0) + 1
+                year = meta.get("year")
+                if isinstance(year, int) and year > 1900:
+                    years.append(year)
+
+            year_range = {
+                "min": min(years) if years else 0,
+                "max": max(years) if years else 0,
+            }
 
             return {
                 "total_chunks": count,
                 "total_papers": len(doc_metadata),
                 "papers_by_phase": papers_by_phase,
                 "papers_by_topic": papers_by_topic,
+                "year_range": year_range,
                 "embedding_provider": embed_info.get("provider", "unknown"),
                 "embedding_model": embed_info.get("model", "unknown"),
                 "embedding_dimension": embed_info.get("dimension", 768),
@@ -809,6 +892,7 @@ class LiteratureReviewRAG:
                 "total_papers": 0,
                 "embedding_provider": embed_info.get("provider", "unknown"),
                 "embedding_model": embed_info.get("model", "unknown"),
+                "year_range": {"min": 0, "max": 0},
                 "ready": False,
                 "error": str(e)
             }

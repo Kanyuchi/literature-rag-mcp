@@ -125,6 +125,7 @@ class JobCollectionRAG:
         n_results: int = 5,
         phase_filter: Optional[str] = None,
         topic_filter: Optional[str] = None,
+        use_reranking: Optional[bool] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -151,8 +152,9 @@ class JobCollectionRAG:
             where_filter = {"$and": conditions}
 
         # Query collection
+        rerank_enabled = self._reranker_config.get("enabled") if use_reranking is None else use_reranking
         rerank_top_k = self._reranker_config.get("rerank_top_k", n_results)
-        candidate_k = max(n_results, rerank_top_k) if self._reranker_config.get("enabled") else n_results
+        candidate_k = max(n_results, rerank_top_k) if rerank_enabled else n_results
 
         results = self.collection.query(
             query_embeddings=[query_embedding],
@@ -162,7 +164,7 @@ class JobCollectionRAG:
         )
 
         # Rerank if enabled
-        reranker = self._get_reranker()
+        reranker = self._get_reranker() if rerank_enabled else None
         if reranker and results.get("documents") and results["documents"][0]:
             docs = results["documents"][0]
             metas = results["metadatas"][0]

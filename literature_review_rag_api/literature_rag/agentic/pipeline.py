@@ -141,18 +141,21 @@ class AgenticRAGPipeline:
             f"(confidence={classification.confidence:.2f})"
         )
 
+        # Only rerank when explicitly requested via deep analysis.
+        use_reranking = deep_analysis
+
         # Route to appropriate pipeline
         if classification.complexity == QueryComplexity.SIMPLE:
             result = self._run_simple_pipeline(
-                question, n_sources, phase_filter, topic_filter
+                question, n_sources, phase_filter, topic_filter, use_reranking
             )
         elif classification.complexity == QueryComplexity.MEDIUM:
             result = self._run_medium_pipeline(
-                question, n_sources, phase_filter, topic_filter
+                question, n_sources, phase_filter, topic_filter, use_reranking
             )
         else:
             result = self._run_complex_pipeline(
-                question, n_sources, phase_filter, topic_filter
+                question, n_sources, phase_filter, topic_filter, use_reranking
             )
 
         # Add timing and classification info
@@ -173,7 +176,8 @@ class AgenticRAGPipeline:
         question: str,
         n_sources: int,
         phase_filter: Optional[str],
-        topic_filter: Optional[str]
+        topic_filter: Optional[str],
+        use_reranking: bool
     ) -> Dict[str, Any]:
         """
         Simple pipeline: 1 retrieval, 1 LLM call.
@@ -189,7 +193,7 @@ class AgenticRAGPipeline:
         )
 
         # Retrieve
-        chunks = self._retrieve(question, n_sources, phase_filter, topic_filter)
+        chunks = self._retrieve(question, n_sources, phase_filter, topic_filter, use_reranking)
 
         if not chunks:
             return {
@@ -215,7 +219,8 @@ class AgenticRAGPipeline:
         question: str,
         n_sources: int,
         phase_filter: Optional[str],
-        topic_filter: Optional[str]
+        topic_filter: Optional[str],
+        use_reranking: bool
     ) -> Dict[str, Any]:
         """
         Medium pipeline: 1 retrieval, 1 LLM call with fuller context.
@@ -232,7 +237,7 @@ class AgenticRAGPipeline:
 
         # Retrieve more sources for medium complexity
         effective_n = min(n_sources + 2, 10)
-        chunks = self._retrieve(question, effective_n, phase_filter, topic_filter)
+        chunks = self._retrieve(question, effective_n, phase_filter, topic_filter, use_reranking)
 
         if not chunks:
             return {
@@ -258,7 +263,8 @@ class AgenticRAGPipeline:
         question: str,
         n_sources: int,
         phase_filter: Optional[str],
-        topic_filter: Optional[str]
+        topic_filter: Optional[str],
+        use_reranking: bool
     ) -> Dict[str, Any]:
         """
         Complex pipeline: Planning → Retrieval → Evaluation → Generation → Validation
@@ -291,13 +297,13 @@ class AgenticRAGPipeline:
             if attempt == 0:
                 # Initial retrieval based on plan
                 chunks = self._smart_retrieve(
-                    question, plan, n_sources, phase_filter, topic_filter
+                    question, plan, n_sources, phase_filter, topic_filter, use_reranking
                 )
             else:
                 # Retry with expanded strategy
                 stats["retries"]["retrieval"] += 1
                 chunks = self._expanded_retrieve(
-                    question, plan, n_sources + 3, phase_filter, topic_filter
+                    question, plan, n_sources + 3, phase_filter, topic_filter, use_reranking
                 )
 
             if not chunks:
@@ -371,7 +377,8 @@ class AgenticRAGPipeline:
         question: str,
         n_results: int,
         phase_filter: Optional[str],
-        topic_filter: Optional[str]
+        topic_filter: Optional[str],
+        use_reranking: bool
     ) -> List[RetrievedChunk]:
         """Basic retrieval from RAG system."""
         filters = {}
@@ -384,6 +391,7 @@ class AgenticRAGPipeline:
             results = self.rag.query(
                 question=question,
                 n_results=n_results,
+                use_reranking=use_reranking,
                 **filters
             )
             return self._convert_results(results)
@@ -397,7 +405,8 @@ class AgenticRAGPipeline:
         plan: Dict[str, Any],
         n_results: int,
         phase_filter: Optional[str],
-        topic_filter: Optional[str]
+        topic_filter: Optional[str],
+        use_reranking: bool
     ) -> List[RetrievedChunk]:
         """Smart retrieval based on planning result."""
         all_chunks = []
@@ -407,7 +416,7 @@ class AgenticRAGPipeline:
         results_per_query = max(n_results // len(sub_queries), 2)
 
         for sub_query in sub_queries:
-            chunks = self._retrieve(sub_query, results_per_query, phase_filter, topic_filter)
+            chunks = self._retrieve(sub_query, results_per_query, phase_filter, topic_filter, use_reranking)
             for chunk in chunks:
                 chunk_id = chunk.get("metadata", {}).get("doc_id", "") + chunk.get("content", "")[:50]
                 if chunk_id not in seen_ids:
@@ -424,18 +433,19 @@ class AgenticRAGPipeline:
         plan: Dict[str, Any],
         n_results: int,
         phase_filter: Optional[str],
-        topic_filter: Optional[str]
+        topic_filter: Optional[str],
+        use_reranking: bool
     ) -> List[RetrievedChunk]:
         """Expanded retrieval for retry - relaxes filters."""
         all_chunks = []
 
         # Try without filters first
-        chunks = self._retrieve(question, n_results, None, None)
+        chunks = self._retrieve(question, n_results, None, None, use_reranking)
         all_chunks.extend(chunks)
 
         # Add sub-query results
         for sub_query in plan.get("sub_queries", [])[:3]:
-            more_chunks = self._retrieve(sub_query, 3, None, None)
+            more_chunks = self._retrieve(sub_query, 3, None, None, use_reranking)
             all_chunks.extend(more_chunks)
 
         # Deduplicate and sort

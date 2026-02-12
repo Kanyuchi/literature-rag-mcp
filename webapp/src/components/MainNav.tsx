@@ -46,7 +46,6 @@ export default function MainNav() {
     { path: '/agents', label: t('nav.agent'), icon: Bot },
     { path: '/files', label: t('nav.files'), icon: FolderOpen },
     { path: '/jobs', label: t('nav.jobs'), icon: Briefcase },
-    { path: '/insights', label: t('nav.insights'), icon: Lightbulb },
   ];
 
   const handleLogout = async () => {
@@ -191,6 +190,10 @@ export default function MainNav() {
                 <DropdownMenuItem onClick={() => navigate('/jobs')}>
                   <Briefcase className="mr-2 h-4 w-4" />
                   {t('common.knowledge_bases')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/insights')}>
+                  <Lightbulb className="mr-2 h-4 w-4" />
+                  {t('nav.insights')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate('/settings/data-sources')}>

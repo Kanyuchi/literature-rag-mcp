@@ -348,10 +348,10 @@ upload:
   max_file_size: 52428800
 
   # Temporary upload directory (for processing)
-  temp_path: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/uploads/temp"
+  temp_path: "./uploads/temp"
 
   # Permanent storage directory (for uploaded PDFs)
-  storage_path: "/Users/fadzie/Desktop/lit_rag/literature_review_rag_api/uploads/pdfs"
+  storage_path: "./uploads/pdfs"
 
   # Allowed file extensions
   allowed_extensions:

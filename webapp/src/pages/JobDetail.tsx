@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
-import type { Job, JobDocument, JobStats, UploadConfigResponse } from '../lib/api';
+import type { Job, JobDocument, JobStats, UploadConfigResponse, RelatedDocumentInfo } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Loader2,
   Plus,
+  Link2,
 } from 'lucide-react';
 
 interface UploadQueueItem {
@@ -68,6 +69,12 @@ export default function JobDetail() {
 
   // Search/filter
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Related documents
+  const [selectedDoc, setSelectedDoc] = useState<JobDocument | null>(null);
+  const [relatedDocs, setRelatedDocs] = useState<RelatedDocumentInfo[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState<string | null>(null);
 
   const numericJobId = jobId ? parseInt(jobId, 10) : null;
 
@@ -248,6 +255,22 @@ export default function JobDetail() {
       setShowClearConfirm(false);
     } finally {
       setIsClearing(false);
+    }
+  };
+
+  const handleLoadRelated = async (doc: JobDocument) => {
+    if (!accessToken || !numericJobId) return;
+    setSelectedDoc(doc);
+    setRelatedLoading(true);
+    setRelatedError(null);
+    try {
+      const response = await api.getRelatedDocuments(numericJobId, doc.doc_id, 5, accessToken);
+      setRelatedDocs(response.relations || []);
+    } catch (err) {
+      setRelatedError(err instanceof Error ? err.message : t('job_detail.related_error'));
+      setRelatedDocs([]);
+    } finally {
+      setRelatedLoading(false);
     }
   };
 
@@ -500,12 +523,21 @@ export default function JobDetail() {
                           {formatDate(doc.created_at)}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => setDeleteDoc(doc)}
-                            className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleLoadRelated(doc)}
+                              className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                              title={t('job_detail.related_title')}
+                            >
+                              <Link2 className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteDoc(doc)}
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -515,54 +547,111 @@ export default function JobDetail() {
             )}
           </div>
 
-          {/* Query Panel */}
-          {showQueryPanel && (
-            <div className="w-96 bg-card border border-border rounded-lg p-4 h-fit sticky top-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-foreground">{t('job_detail.query_title')}</h3>
-                <button
-                  onClick={() => setShowQueryPanel(false)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <textarea
-                  value={queryText}
-                  onChange={(e) => setQueryText(e.target.value)}
-                  placeholder={t('job_detail.query_placeholder')}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
-                />
-
-                <button
-                  onClick={handleQuery}
-                  disabled={!queryText.trim() || isQuerying}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isQuerying ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('common.search')}...
-                    </>
-                  ) : (
-                    <>
-                      <MessageSquare className="h-4 w-4" />
-                      {t('job_detail.query_button')}
-                    </>
-                  )}
-                </button>
-
-                {queryResult && (
-                  <div className="p-4 bg-secondary/50 rounded-lg max-h-96 overflow-y-auto">
-                    <p className="text-sm text-foreground whitespace-pre-wrap">
-                      {queryResult}
-                    </p>
+          {(showQueryPanel || selectedDoc) && (
+            <div className="w-96 flex flex-col gap-4">
+              {/* Query Panel */}
+              {showQueryPanel && (
+                <div className="bg-card border border-border rounded-lg p-4 h-fit sticky top-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-foreground">{t('job_detail.query_title')}</h3>
+                    <button
+                      onClick={() => setShowQueryPanel(false)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
                   </div>
-                )}
-              </div>
+
+                  <div className="space-y-4">
+                    <textarea
+                      value={queryText}
+                      onChange={(e) => setQueryText(e.target.value)}
+                      placeholder={t('job_detail.query_placeholder')}
+                      rows={4}
+                      className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                    />
+
+                    <button
+                      onClick={handleQuery}
+                      disabled={!queryText.trim() || isQuerying}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isQuerying ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {t('common.search')}...
+                        </>
+                      ) : (
+                        <>
+                          <MessageSquare className="h-4 w-4" />
+                          {t('job_detail.query_button')}
+                        </>
+                      )}
+                    </button>
+
+                    {queryResult && (
+                      <div className="p-4 bg-secondary/50 rounded-lg max-h-96 overflow-y-auto">
+                        <p className="text-sm text-foreground whitespace-pre-wrap">
+                          {queryResult}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Related Documents Panel */}
+              {selectedDoc && (
+                <div className="bg-card border border-border rounded-lg p-4 h-fit">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-semibold text-foreground">{t('job_detail.related_title')}</h3>
+                    <button
+                      onClick={() => setSelectedDoc(null)}
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label={t('job_detail.related_close')}
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground truncate">
+                    {selectedDoc.title || selectedDoc.filename}
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    {relatedLoading && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t('job_detail.related_loading')}
+                      </div>
+                    )}
+                    {!relatedLoading && relatedError && (
+                      <div className="text-sm text-destructive">{relatedError}</div>
+                    )}
+                    {!relatedLoading && !relatedError && relatedDocs.length === 0 && (
+                      <div className="text-sm text-muted-foreground">
+                        {t('job_detail.related_empty')}
+                      </div>
+                    )}
+                    {!relatedLoading && relatedDocs.length > 0 && (
+                      <ul className="space-y-2">
+                        {relatedDocs.map((rel) => (
+                          <li key={`${rel.related_doc_id}`} className="border border-border rounded-md p-2">
+                            <div className="text-sm font-medium text-foreground truncate">
+                              {rel.title || rel.related_doc_id}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {rel.authors || t('job_detail.related_unknown_author')}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {t('job_detail.related_score', { score: rel.score.toFixed(2) })}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

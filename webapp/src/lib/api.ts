@@ -155,6 +155,22 @@ export interface DocumentListResponse {
   documents: DocumentInfo[];
 }
 
+export interface RelatedDocumentInfo {
+  doc_id: string;
+  related_doc_id: string;
+  score: number;
+  title?: string;
+  authors?: string;
+  year?: number;
+  phase?: string;
+  topic_category?: string;
+}
+
+export interface RelatedDocumentsResponse {
+  total: number;
+  relations: RelatedDocumentInfo[];
+}
+
 export interface DeleteResponse {
   success: boolean;
   doc_id: string;
@@ -821,6 +837,25 @@ class ApiClient {
     if (params?.topic_filter) searchParams.set('topic_filter', params.topic_filter);
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     return this.fetch(`/api/jobs/${jobId}/documents?${searchParams.toString()}`, { headers });
+  }
+
+  // Get related documents for a specific document
+  async getRelatedDocuments(
+    jobId: number,
+    docId: string,
+    limit: number = 5,
+    accessToken?: string
+  ): Promise<RelatedDocumentsResponse> {
+    const headers: Record<string, string> = {};
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    const searchParams = new URLSearchParams();
+    searchParams.set('limit', limit.toString());
+    return this.fetch(
+      `/api/jobs/${jobId}/documents/${encodeURIComponent(docId)}/related?${searchParams.toString()}`,
+      { headers }
+    );
   }
 
   // Upload PDF to a job

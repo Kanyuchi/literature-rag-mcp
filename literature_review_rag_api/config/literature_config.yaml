@@ -177,6 +177,10 @@ retrieval:
   # Distance metric for similarity search
   distance_metric: "cosine"  # Options: "cosine", "euclidean", "dot"
 
+  # Language-aware retrieval (EN/DE)
+  language_filter_enabled: true
+  language_filter_fallback: true  # Retry without language filter if no results
+
 # ----------------------------------------------------------------------------
 # QUERY NORMALIZATION (KEY PATTERN FROM PERSONALITY RAG)
 # ----------------------------------------------------------------------------

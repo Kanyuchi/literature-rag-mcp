@@ -373,6 +373,8 @@ class LiteratureReviewRAG:
             logger.info(f"Detected academic terms: {detected_terms}")
 
         # Build ChromaDB filters
+        from .language import detect_language
+
         conditions = []
 
         if phase_filter:
@@ -400,6 +402,13 @@ class LiteratureReviewRAG:
         if research_type_filter:
             conditions.append({"research_type": research_type_filter})
 
+        language_filter_applied = False
+        if self.config.retrieval.language_filter_enabled:
+            language = detect_language(question)
+            if language and language != "unknown":
+                language_filter_applied = True
+                conditions.append({"language": language})
+
         # Combine filters
         where_filter = None
         if len(conditions) == 1:
@@ -410,10 +419,47 @@ class LiteratureReviewRAG:
         # Use hybrid search if enabled and BM25 index is ready
         bm25_retriever = self._get_bm25_retriever()
         if self._hybrid_config.get("enabled") and bm25_retriever and bm25_retriever.is_ready():
-            return self._hybrid_query(expanded_query, n_results, where_filter)
+            results = self._hybrid_query(expanded_query, n_results, where_filter)
+        else:
+            # Fall back to dense-only search
+            results = self._dense_query(expanded_query, n_results, where_filter)
 
-        # Fall back to dense-only search
-        return self._dense_query(expanded_query, n_results, where_filter)
+        if (
+            language_filter_applied
+            and self.config.retrieval.language_filter_fallback
+            and (not results or not results.get("documents") or not results["documents"][0])
+        ):
+            fallback_conditions = []
+            if phase_filter:
+                fallback_conditions.append({"phase": phase_filter})
+            if topic_filter:
+                fallback_conditions.append({"topic_category": topic_filter})
+            if year_min or year_max:
+                year_conditions = {}
+                if year_min:
+                    year_conditions["$gte"] = year_min
+                if year_max:
+                    year_conditions["$lte"] = year_max
+                if year_conditions:
+                    fallback_conditions.append({"year": year_conditions})
+            if methodology_filter:
+                fallback_conditions.append({"methodology": methodology_filter})
+            if geographic_filter:
+                fallback_conditions.append({"geographic_focus": {"$contains": geographic_filter}})
+            if research_type_filter:
+                fallback_conditions.append({"research_type": research_type_filter})
+
+            fallback_filter = None
+            if len(fallback_conditions) == 1:
+                fallback_filter = fallback_conditions[0]
+            elif len(fallback_conditions) > 1:
+                fallback_filter = {"$and": fallback_conditions}
+
+            if self._hybrid_config.get("enabled") and bm25_retriever and bm25_retriever.is_ready():
+                return self._hybrid_query(expanded_query, n_results, fallback_filter)
+            return self._dense_query(expanded_query, n_results, fallback_filter)
+
+        return results
 
     def _dense_query(
         self,

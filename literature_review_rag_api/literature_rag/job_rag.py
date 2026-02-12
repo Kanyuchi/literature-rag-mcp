@@ -138,18 +138,27 @@ class JobCollectionRAG:
         query_embedding = self.embeddings.embed_query(expanded_query)
 
         # Build filters
-        where_filter = None
-        conditions = []
+        from .language import detect_language
 
+        base_conditions = []
         if phase_filter:
-            conditions.append({"phase": phase_filter})
+            base_conditions.append({"phase": phase_filter})
         if topic_filter:
-            conditions.append({"topic_category": topic_filter})
+            base_conditions.append({"topic_category": topic_filter})
 
-        if len(conditions) == 1:
-            where_filter = conditions[0]
-        elif len(conditions) > 1:
-            where_filter = {"$and": conditions}
+        language_filter_applied = False
+        language = None
+        if self.config.retrieval.language_filter_enabled:
+            language = detect_language(question)
+            if language and language != "unknown":
+                language_filter_applied = True
+                base_conditions.append({"language": language})
+
+        where_filter = None
+        if len(base_conditions) == 1:
+            where_filter = base_conditions[0]
+        elif len(base_conditions) > 1:
+            where_filter = {"$and": base_conditions}
 
         # Query collection
         rerank_enabled = self._reranker_config.get("enabled") if use_reranking is None else use_reranking
@@ -162,6 +171,30 @@ class JobCollectionRAG:
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
+
+        if (
+            language_filter_applied
+            and self.config.retrieval.language_filter_fallback
+            and (not results or not results.get("documents") or not results["documents"][0])
+        ):
+            # Retry without language filter for legacy docs or mixed-language KBs
+            fallback_conditions = []
+            if phase_filter:
+                fallback_conditions.append({"phase": phase_filter})
+            if topic_filter:
+                fallback_conditions.append({"topic_category": topic_filter})
+            fallback_filter = None
+            if len(fallback_conditions) == 1:
+                fallback_filter = fallback_conditions[0]
+            elif len(fallback_conditions) > 1:
+                fallback_filter = {"$and": fallback_conditions}
+
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=candidate_k,
+                where=fallback_filter,
+                include=["documents", "metadatas", "distances"]
+            )
 
         results = self._postprocess_results(results, n_results)
 

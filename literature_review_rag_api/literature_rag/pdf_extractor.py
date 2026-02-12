@@ -107,6 +107,7 @@ class PDFMetadata:
     abstract: Optional[str] = None
     summary: Optional[str] = None  # For business documents
     keywords: Optional[List[str]] = None
+    language: Optional[str] = None
 
     # Document stats
     total_pages: int = 0
@@ -381,9 +382,13 @@ class AcademicPDFExtractor:
         3. Fallback to cleaned filename
         """
         # Extract from first pages for text-based extraction
+        from .language import detect_language
+
         first_pages_text = ""
         for page_num in range(min(self.metadata_pages, len(doc))):
             first_pages_text += doc[page_num].get_text()
+        if first_pages_text:
+            metadata.language = detect_language(first_pages_text)
 
         # === STEP 1: Extract from filename FIRST (most reliable for year/author) ===
         self._extract_from_filename(metadata)

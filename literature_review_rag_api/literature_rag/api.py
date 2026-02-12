@@ -816,7 +816,7 @@ async def api_chat_with_llm(
         # Build prompt for LLM
         system_prompt = """You are an expert assistant.
 
-Answer questions based ONLY on the provided document context. When citing sources, use the author-date format with citation number, like: "According to Author (Year) [1], ..." or "...as noted by Author (Year) [2]".
+Answer questions based ONLY on the provided document context. Respond in the same language as the user's question unless they explicitly request another language. When citing sources, use the author-date format with citation number, like: "According to Author (Year) [1], ..." or "...as noted by Author (Year) [2]".
 
 Be precise, concise, and synthesize information across multiple sources when relevant. If the context doesn't contain enough information to fully answer the question, acknowledge this limitation."""
 

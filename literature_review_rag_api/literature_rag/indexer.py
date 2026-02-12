@@ -183,7 +183,8 @@ class DocumentIndexer:
                     "phase": metadata.phase,
                     "topic_category": metadata.topic_category,
                     "total_pages": metadata.total_pages,
-                    "filename": metadata.filename
+                    "filename": metadata.filename,
+                    "language": metadata.language
                 },
                 "success": True,
                 "error": None
@@ -233,7 +234,8 @@ class DocumentIndexer:
             "filename": metadata.filename,
             "file_path": metadata.file_path,
             "abstract": metadata.abstract,
-            "total_pages": metadata.total_pages
+            "total_pages": metadata.total_pages,
+            "language": metadata.language
         }
 
         # Extract keywords

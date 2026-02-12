@@ -1,17 +1,21 @@
-# literature-rag-mcp
+# Retrievo
 
-MCP server for academic literature RAG system focused on German regional economic transitions research. Integrates with Claude Desktop and Claude Code.
+**Repo note:** the repository name is legacy; the product name and domain are **Retrievo**.
 
-> **Want to use this for your own research?** See the [Replication Guide](REPLICATION_GUIDE.md) for step-by-step instructions to adapt this system to your domain.
+Retrievo is a production‑grade retrieval and knowledge platform for document‑heavy workflows — academic, business, and operational. It pairs a scalable RAG backend with a modern web app, supports multi‑tenant knowledge bases, and is designed to grow from thousands to millions of documents without changing the core architecture.
+
+> **Want to deploy this for your own domain?** See the [Replication Guide](REPLICATION_GUIDE.md) for step‑by‑step instructions.
 
 ## Features
-- **13,578 indexed chunks** from 83 academic papers
-- **Semantic search** using BAAI/bge-base-en-v1.5 embeddings
-- **ChromaDB** vector storage
-- **FastAPI** REST endpoint (port 8001)
-- **MCP Server** for Claude integration
+- **Multi‑tenant knowledge bases** with job‑scoped search, chat, and indexing
+- **Semantic search** with OpenAI embeddings (configurable model)
+- **Hybrid retrieval** (BM25 + dense) and optional reranking
+- **ChromaDB** vector storage for fast, scalable retrieval
+- **FastAPI** REST API (port 8001) with auth + admin‑friendly endpoints
+- **Web app** for upload, search, chat, and knowledge base management
+- **MCP integration** available for Claude/agent tooling (optional)
 
-## MCP Server Setup
+## MCP Server Setup (Optional)
 
 ### Claude Desktop
 Config: `~/Library/Application Support/Claude/claude_desktop_config.json`
@@ -86,7 +90,7 @@ python -m literature_rag.api
 
 ## Project Structure
 ```
-literature-rag-mcp/
+retrievo/
 ├── literature_review_rag_api/
 │   ├── literature_rag/
 │   │   ├── mcp_server.py      # MCP server (FastMCP)
@@ -97,5 +101,6 @@ literature-rag-mcp/
 │   │   └── literature_config.yaml
 │   ├── indices/               # ChromaDB storage
 │   └── venv/
+├── webapp/                     # Retrievo web UI (search/chat/upload)
 └── README.md
 ```

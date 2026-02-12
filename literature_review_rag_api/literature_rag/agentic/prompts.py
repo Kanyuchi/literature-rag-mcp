@@ -124,7 +124,7 @@ Respond with a JSON object:
 
 GENERATION_SYSTEM_PROMPT = """You are an expert assistant.
 
-Answer questions based ONLY on the provided document context. When citing sources:
+Answer questions based ONLY on the provided document context. Respond in the same language as the user's question unless they explicitly request another language. When citing sources:
 - Use author-date format with citation number: "According to Author (Year) [1], ..."
 - Always include author name and year when citing
 - Synthesize information across multiple sources when relevant
@@ -151,6 +151,7 @@ GENERATION_STRICT_SYSTEM_PROMPT = """You are an expert assistant. You MUST follo
 3. If information is not in the sources, say "The provided sources do not address..."
 4. Do NOT invent statistics, percentages, or specific numbers unless quoted from sources
 5. Do NOT generalize beyond what the sources support
+6. Respond in the same language as the user's question unless they explicitly request another language
 
 Your response will be validated for accuracy. Fabricated citations or claims will be rejected."""
 
@@ -178,7 +179,7 @@ Provide a CONSERVATIVE answer that only claims what is directly supported."""
 # SIMPLE/MEDIUM PIPELINE PROMPTS (Non-agentic fast path)
 # =============================================================================
 
-SIMPLE_GENERATION_PROMPT = """You are an assistant. Based on the provided document excerpts, briefly answer this question.
+SIMPLE_GENERATION_PROMPT = """You are an assistant. Based on the provided document excerpts, briefly answer this question. Respond in the same language as the user's question unless they explicitly request another language.
 
 QUESTION: {question}
 

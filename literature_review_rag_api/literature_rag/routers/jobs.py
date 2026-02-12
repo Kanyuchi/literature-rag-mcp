@@ -755,14 +755,22 @@ async def query_job(
         embeddings = get_embeddings(config.embedding)
 
         # Build filters
-        where_filter = None
-        conditions = []
+        from ..language import detect_language
 
+        conditions = []
         if phase_filter:
             conditions.append({"phase": phase_filter})
         if topic_filter:
             conditions.append({"topic_category": topic_filter})
 
+        language_filter_applied = False
+        if config.retrieval.language_filter_enabled:
+            language = detect_language(question)
+            if language and language != "unknown":
+                language_filter_applied = True
+                conditions.append({"language": language})
+
+        where_filter = None
         if len(conditions) == 1:
             where_filter = conditions[0]
         elif len(conditions) > 1:
@@ -782,6 +790,31 @@ async def query_job(
             formatted_results = _dense_query_job(
                 collection, embeddings, question, n_sources, where_filter
             )
+
+        if (
+            language_filter_applied
+            and config.retrieval.language_filter_fallback
+            and not formatted_results
+        ):
+            fallback_conditions = []
+            if phase_filter:
+                fallback_conditions.append({"phase": phase_filter})
+            if topic_filter:
+                fallback_conditions.append({"topic_category": topic_filter})
+            fallback_filter = None
+            if len(fallback_conditions) == 1:
+                fallback_filter = fallback_conditions[0]
+            elif len(fallback_conditions) > 1:
+                fallback_filter = {"$and": fallback_conditions}
+
+            if use_hybrid:
+                formatted_results = _hybrid_query_job(
+                    collection, embeddings, bm25_retriever, question, n_sources, fallback_filter
+                )
+            else:
+                formatted_results = _dense_query_job(
+                    collection, embeddings, question, n_sources, fallback_filter
+                )
 
         return {
             "question": question,

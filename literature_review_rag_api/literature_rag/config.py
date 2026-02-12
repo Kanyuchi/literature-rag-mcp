@@ -170,6 +170,8 @@ class RetrievalConfig:
     expand_queries: bool = True
     max_expansions: int = 2
     distance_metric: str = "cosine"
+    language_filter_enabled: bool = True
+    language_filter_fallback: bool = True
 
 
 @dataclass
@@ -493,7 +495,9 @@ def _load_retrieval_config(yaml_retrieval: dict) -> RetrievalConfig:
         rerank_top_k=yaml_retrieval.get("rerank_top_k", 20),
         expand_queries=yaml_retrieval.get("expand_queries", True),
         max_expansions=yaml_retrieval.get("max_expansions", 2),
-        distance_metric=yaml_retrieval.get("distance_metric", "cosine")
+        distance_metric=yaml_retrieval.get("distance_metric", "cosine"),
+        language_filter_enabled=yaml_retrieval.get("language_filter_enabled", True),
+        language_filter_fallback=yaml_retrieval.get("language_filter_fallback", True)
     )
 
 

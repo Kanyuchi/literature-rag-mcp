@@ -307,7 +307,7 @@ export default function Files() {
 
         setUploadProgress(100);
         toast.success(t('files.upload_success', { name: selectedFile.name }), {
-          description: response.message || t('files.upload_index'),
+          description: `${response.chunks_indexed} ${t('kb.chunks')}`,
         });
         setUploadDialogOpen(false);
         resetUploadForm();

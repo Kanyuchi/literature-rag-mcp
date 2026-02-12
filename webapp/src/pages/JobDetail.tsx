@@ -151,26 +151,13 @@ export default function JobDetail() {
       updateQueueItem(item.id, { status: 'uploading' });
 
       try {
-        const formData = new FormData();
-        formData.append('file', item.file);
-        formData.append('phase', item.phase || uploadPhase);
-        formData.append('topic', item.topic || uploadTopic);
-
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:8001'}/api/jobs/${numericJobId}/upload`,
-          {
-            method: 'POST',
-            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-            body: formData,
-          }
+        const result = await api.uploadToJob(
+          numericJobId,
+          item.file,
+          item.phase || uploadPhase,
+          item.topic || uploadTopic,
+          accessToken
         );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ detail: t('files.upload_failed') }));
-          throw new Error(errorData.detail || `HTTP ${response.status}`);
-        }
-
-        const result = await response.json();
 
         updateQueueItem(item.id, {
           status: 'completed',

@@ -184,6 +184,14 @@ export interface AsyncUploadResponse {
   topic: string;
 }
 
+export interface JobUploadResponse {
+  success: boolean;
+  doc_id: string;
+  filename: string;
+  chunks_indexed: number;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface TaskStatusResponse {
   task_id: string;
   filename: string;
@@ -822,7 +830,7 @@ class ApiClient {
     phase: string,
     topic: string,
     accessToken?: string
-  ): Promise<AsyncUploadResponse> {
+  ): Promise<JobUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('phase', phase);

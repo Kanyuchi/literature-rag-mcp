@@ -61,9 +61,9 @@ export default function MainNav() {
       transition={{ duration: 0.5, ease: "easeOut" }}
       className="fixed top-0 left-0 right-0 z-50 h-[72px] glass border-b border-border"
     >
-      <div className="h-full px-4 md:px-6 flex items-center justify-between max-w-[1600px] mx-auto">
+      <div className="h-full px-4 md:px-6 flex items-center justify-between max-w-[1600px] mx-auto gap-3">
         {/* Logo + Knowledge Base Selector */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 shrink-0">
           <Link to="/" className="flex items-center gap-3 group">
             <motion.div
               className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center"
@@ -83,7 +83,7 @@ export default function MainNav() {
         </div>
 
         {/* Desktop Navigation */}
-        <nav className="hidden xl:flex items-center gap-1 bg-secondary/50 rounded-full p-1">
+        <nav className="hidden xl:flex items-center gap-1 bg-secondary/50 rounded-full p-1 flex-1 justify-center max-w-[700px] overflow-x-auto">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
@@ -116,7 +116,7 @@ export default function MainNav() {
         </nav>
 
         {/* Right Side Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Social Icons - Desktop */}
           <div className="hidden md:flex items-center gap-1">
             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">

@@ -8,7 +8,7 @@ import os
 import logging
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, or_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from enum import Enum
@@ -188,6 +188,24 @@ class Document(Base):
     def __repr__(self):
         return f"<Document(id={self.id}, filename={self.filename})>"
 
+
+class DocumentRelation(Base):
+    """Document-to-document relationship (similarity-based)."""
+    __tablename__ = "document_relations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+
+    doc_id = Column(String(255), nullable=False, index=True)
+    related_doc_id = Column(String(255), nullable=False, index=True)
+
+    score = Column(Float, nullable=False, default=0.0)
+    relationship_type = Column(String(50), default="similarity")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DocumentRelation(doc_id={self.doc_id}, related_doc_id={self.related_doc_id}, score={self.score})>"
 
 class ChatSession(Base):
     """Chat session for a job (knowledge base)."""
@@ -530,6 +548,62 @@ class DocumentCRUD:
         """Delete a document record."""
         db.delete(document)
         db.commit()
+
+
+class DocumentRelationCRUD:
+    """CRUD operations for DocumentRelation model."""
+
+    @staticmethod
+    def replace_for_doc(
+        db: Session,
+        job_id: int,
+        doc_id: str,
+        relations: List[tuple[str, float]],
+        relationship_type: str = "similarity"
+    ) -> None:
+        """Replace all relations for a document."""
+        db.query(DocumentRelation).filter(
+            DocumentRelation.job_id == job_id,
+            DocumentRelation.doc_id == doc_id
+        ).delete()
+
+        for related_doc_id, score in relations:
+            db.add(DocumentRelation(
+                job_id=job_id,
+                doc_id=doc_id,
+                related_doc_id=related_doc_id,
+                score=score,
+                relationship_type=relationship_type
+            ))
+        db.commit()
+
+    @staticmethod
+    def delete_for_doc(db: Session, job_id: int, doc_id: str) -> None:
+        """Delete all relations for a document."""
+        db.query(DocumentRelation).filter(
+            DocumentRelation.job_id == job_id,
+            or_(
+                DocumentRelation.doc_id == doc_id,
+                DocumentRelation.related_doc_id == doc_id
+            )
+        ).delete()
+        db.commit()
+
+    @staticmethod
+    def delete_for_job(db: Session, job_id: int) -> None:
+        """Delete all relations for a job."""
+        db.query(DocumentRelation).filter(
+            DocumentRelation.job_id == job_id
+        ).delete()
+        db.commit()
+
+    @staticmethod
+    def list_for_doc(db: Session, job_id: int, doc_id: str, limit: int = 10) -> List[DocumentRelation]:
+        """List relations for a document."""
+        return db.query(DocumentRelation).filter(
+            DocumentRelation.job_id == job_id,
+            DocumentRelation.doc_id == doc_id
+        ).order_by(DocumentRelation.score.desc()).limit(limit).all()
 
 
 class ChatSessionCRUD:

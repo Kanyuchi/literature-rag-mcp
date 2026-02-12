@@ -349,6 +349,24 @@ class DocumentListResponse(BaseModel):
     documents: List[DocumentInfo] = Field(..., description="List of documents")
 
 
+class DocumentRelationInfo(BaseModel):
+    """Related document info."""
+    doc_id: str
+    related_doc_id: str
+    score: float
+    title: Optional[str]
+    authors: Optional[str]
+    year: Optional[int]
+    phase: Optional[str]
+    topic_category: Optional[str]
+
+
+class DocumentRelationListResponse(BaseModel):
+    """Response model for related documents."""
+    total: int = Field(..., description="Total number of related documents")
+    relations: List[DocumentRelationInfo] = Field(..., description="List of related documents")
+
+
 class DeleteResponse(BaseModel):
     """Response model for document deletion."""
     success: bool

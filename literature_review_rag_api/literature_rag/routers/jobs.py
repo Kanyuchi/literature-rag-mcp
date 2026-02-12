@@ -14,12 +14,12 @@ from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File,
 from sqlalchemy.orm import Session
 
 from ..database import (
-    get_db, User, Job, Document, JobCRUD, DocumentCRUD,
+    get_db, User, Job, Document, JobCRUD, DocumentCRUD, DocumentRelationCRUD,
     JobStatus, DocumentStatus
 )
 from ..auth import get_current_user
 from ..models import (
-    JobCreateRequest, JobResponse, JobListResponse
+    JobCreateRequest, JobResponse, JobListResponse, DocumentRelationListResponse
 )
 from ..config import load_config
 from ..storage import get_storage, get_storage_auto, is_s3_configured
@@ -39,6 +39,61 @@ config = load_config()
 
 # Cache for job BM25 retrievers (lazy-loaded)
 _job_bm25_cache: dict[int, BM25Retriever] = {}
+
+
+def compute_document_relations(
+    db: Session,
+    job: Job,
+    collection: chromadb.Collection,
+    doc_id: str,
+    max_related: int = 5
+) -> list[tuple[str, float]]:
+    """Compute and store related documents for a given doc_id."""
+    import numpy as np
+
+    try:
+        doc_data = collection.get(where={"doc_id": doc_id}, include=["embeddings", "metadatas"])
+    except Exception as e:
+        logger.warning(f"Failed to fetch embeddings for {doc_id}: {e}")
+        return []
+
+    embeddings = [e for e in doc_data.get("embeddings", []) if e is not None]
+    if not embeddings:
+        logger.info(f"No embeddings found for {doc_id}; skipping relations")
+        return []
+
+    doc_vector = np.mean(np.array(embeddings), axis=0).tolist()
+    try:
+        query_result = collection.query(
+            query_embeddings=[doc_vector],
+            n_results=max_related * 3,
+            include=["metadatas", "distances"]
+        )
+    except Exception as e:
+        logger.warning(f"Failed to query related docs for {doc_id}: {e}")
+        return []
+
+    related: list[tuple[str, float]] = []
+    seen = {doc_id}
+    metadatas = query_result.get("metadatas", [[]])[0] or []
+    distances = query_result.get("distances", [[]])[0] or []
+
+    for meta, distance in zip(metadatas, distances):
+        related_doc_id = meta.get("doc_id") if meta else None
+        if not related_doc_id or related_doc_id in seen:
+            continue
+        seen.add(related_doc_id)
+        score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
+        related.append((related_doc_id, score))
+        if len(related) >= max_related:
+            break
+
+    if related:
+        DocumentRelationCRUD.replace_for_doc(db, job.id, doc_id, related)
+    else:
+        DocumentRelationCRUD.delete_for_doc(db, job.id, doc_id)
+
+    return related
 
 
 def get_job_collection(job: Job) -> tuple[chromadb.ClientAPI, chromadb.Collection]:
@@ -444,6 +499,9 @@ async def delete_job(
             # Delete BM25 index for this job
             delete_job_bm25_index(job_id)
 
+            # Delete document relations for this job
+            DocumentRelationCRUD.delete_for_job(db, job_id)
+
             # Delete all documents from storage
             documents = DocumentCRUD.get_job_documents(db, job_id)
             storage = get_storage_auto()
@@ -522,6 +580,9 @@ async def clear_job_documents(
 
         # Clear BM25 index for this job (delete and let it be recreated on next upload)
         delete_job_bm25_index(job_id)
+
+        # Clear document relations for this job
+        DocumentRelationCRUD.delete_for_job(db, job_id)
 
         # Delete all documents from storage and database
         documents = DocumentCRUD.get_job_documents(db, job_id)
@@ -706,6 +767,67 @@ async def get_job_document_download_url(
     storage = get_storage_auto()
     url = storage.get_presigned_url(document.storage_key)
     return {"doc_id": doc_id, "download_url": url}
+
+
+@router.get("/{job_id}/documents/{doc_id}/related", response_model=DocumentRelationListResponse)
+async def get_related_documents(
+    job_id: int,
+    doc_id: str,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get related documents for a specific document.
+    """
+    job = JobCRUD.get_by_id(db, job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+
+    if job.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+    document = DocumentCRUD.get_by_doc_id(db, job_id, doc_id)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+
+    relations = DocumentRelationCRUD.list_for_doc(db, job_id, doc_id, limit=limit)
+    if not relations:
+        return {"total": 0, "relations": []}
+
+    related_ids = [rel.related_doc_id for rel in relations]
+    related_docs = db.query(Document).filter(
+        Document.job_id == job_id,
+        Document.doc_id.in_(related_ids)
+    ).all()
+    doc_map = {doc.doc_id: doc for doc in related_docs}
+
+    return {
+        "total": len(relations),
+        "relations": [
+            {
+                "doc_id": rel.doc_id,
+                "related_doc_id": rel.related_doc_id,
+                "score": rel.score,
+                "title": doc_map.get(rel.related_doc_id).title if doc_map.get(rel.related_doc_id) else None,
+                "authors": doc_map.get(rel.related_doc_id).authors if doc_map.get(rel.related_doc_id) else None,
+                "year": doc_map.get(rel.related_doc_id).year if doc_map.get(rel.related_doc_id) else None,
+                "phase": doc_map.get(rel.related_doc_id).phase if doc_map.get(rel.related_doc_id) else None,
+                "topic_category": doc_map.get(rel.related_doc_id).topic_category if doc_map.get(rel.related_doc_id) else None
+            }
+            for rel in relations
+        ]
+    }
 
 
 @router.get("/{job_id}/query")
@@ -1301,6 +1423,11 @@ async def upload_to_job(
 
         logger.info(f"Successfully indexed {result['chunks_indexed']} chunks for job {job_id}")
 
+        try:
+            compute_document_relations(db, job, collection, result["doc_id"])
+        except Exception as e:
+            logger.warning(f"Failed to compute document relations for {result['doc_id']}: {e}")
+
         return {
             "success": True,
             "doc_id": result["doc_id"],
@@ -1386,6 +1513,9 @@ async def delete_job_document(
 
         # Delete document record first
         db.delete(document)
+
+        # Delete relations for this document (both directions)
+        DocumentRelationCRUD.delete_for_doc(db, job_id, doc_id)
 
         # Update job stats
         job.document_count = max(0, job.document_count - 1)

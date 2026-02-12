@@ -70,6 +70,17 @@ class DocumentIndexer:
         # Initialize text splitters
         self._init_text_splitters()
 
+        embedding_config = self.config.get("embedding", {})
+        self._embedding_max_tokens = int(embedding_config.get("max_input_tokens", 7500))
+        self._chars_per_token = int(embedding_config.get("chars_per_token", 4))
+        self._token_encoder = None
+        try:
+            import tiktoken
+            model_name = embedding_config.get("openai_model", "text-embedding-3-small")
+            self._token_encoder = tiktoken.encoding_for_model(model_name)
+        except Exception:
+            self._token_encoder = None
+
         logger.info(f"DocumentIndexer initialized (extractor: {self._extractor_type})")
 
     def _init_text_splitters(self):
@@ -404,6 +415,8 @@ class DocumentIndexer:
         if not chunks:
             return
 
+        chunks = self._split_oversize_chunks(chunks)
+
         batch_size = self.config.get("embedding", {}).get("batch_size", 32)
 
         for i in range(0, len(chunks), batch_size):
@@ -432,6 +445,65 @@ class DocumentIndexer:
         # Sync BM25 index if available
         if self._bm25_retriever:
             self._bm25_retriever.add_chunks(chunks)
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count using tiktoken when available."""
+        if self._token_encoder is not None:
+            try:
+                return len(self._token_encoder.encode(text))
+            except Exception:
+                pass
+        return max(1, int(len(text) / max(self._chars_per_token, 1)))
+
+    def _split_oversize_chunks(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Split chunks that exceed embedding token limits."""
+        if not self._embedding_max_tokens or self._embedding_max_tokens <= 0:
+            return chunks
+
+        max_chars = int(self._embedding_max_tokens * self._chars_per_token)
+        if max_chars <= 0:
+            return chunks
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=max_chars,
+            chunk_overlap=min(200, max(0, max_chars // 10)),
+            length_function=len,
+            separators=["\n\n", "\n", ". ", " ", ""]
+        )
+
+        split_chunks: List[Dict[str, Any]] = []
+        oversize_count = 0
+
+        for chunk in chunks:
+            text = chunk.get("text", "")
+            if self._estimate_tokens(text) <= self._embedding_max_tokens:
+                split_chunks.append(chunk)
+                continue
+
+            oversize_count += 1
+            meta = chunk.get("metadata", {}).copy()
+            base_id = meta.get(
+                "chunk_id",
+                f"{meta.get('doc_id', 'unknown')}_chunk_{meta.get('chunk_index', 0)}"
+            )
+
+            parts = splitter.split_text(text) or [text]
+            for i, part in enumerate(parts):
+                if self._estimate_tokens(part) > self._embedding_max_tokens:
+                    part = part[:max_chars]
+                part_meta = meta.copy()
+                part_meta["chunk_id"] = f"{base_id}_part_{i}"
+                part_meta["parent_chunk_id"] = base_id
+                part_meta["sub_chunk_index"] = i
+                split_chunks.append({
+                    "text": part,
+                    "metadata": part_meta
+                })
+
+        if oversize_count:
+            logger.info(f"Split {oversize_count} oversized chunks into {len(split_chunks)} total chunks")
+
+        return split_chunks
 
     def delete_document(self, doc_id: str) -> Dict[str, Any]:
         """

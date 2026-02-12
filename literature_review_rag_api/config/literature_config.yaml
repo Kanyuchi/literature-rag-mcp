@@ -150,6 +150,11 @@ embedding:
   # Batch size for indexing (adjust based on available memory)
   batch_size: 32
 
+  # Safety guard: cap embedding input size (OpenAI max is 8192 tokens)
+  max_input_tokens: 7500
+  # Rough chars-per-token heuristic when tokenizer isn't available
+  chars_per_token: 4
+
 # ----------------------------------------------------------------------------
 # SEARCH & RETRIEVAL
 # ----------------------------------------------------------------------------

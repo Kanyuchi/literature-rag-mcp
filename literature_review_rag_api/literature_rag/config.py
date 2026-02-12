@@ -152,6 +152,8 @@ class EmbeddingConfig:
     # Common settings
     batch_size: int = 32
     cache_folder: Optional[str] = None
+    max_input_tokens: int = 7500
+    chars_per_token: int = 4
 
 
 @dataclass

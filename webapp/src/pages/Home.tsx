@@ -209,9 +209,9 @@ export default function Home() {
                     <Database className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-foreground">Public Demo Collection</h2>
+                    <h2 className="text-xl font-semibold text-foreground">{t('home.demo_title')}</h2>
                     <p className="text-sm text-muted-foreground">
-                      {stats?.total_papers || 0} papers on German regional economic transitions
+                      {t('home.demo_subtitle', { count: stats?.total_papers || 0 })}
                     </p>
                   </div>
                 </div>
@@ -220,7 +220,7 @@ export default function Home() {
                     <Card className="px-6 py-3 bg-card border-border hover:border-primary/50 transition-colors cursor-pointer">
                       <div className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
                         <MessageSquare className="w-4 h-4" />
-                        <span className="text-sm">Chat with Demo</span>
+                        <span className="text-sm">{t('home.demo_chat')}</span>
                       </div>
                     </Card>
                   </Link>
@@ -228,7 +228,7 @@ export default function Home() {
                     <Card className="px-6 py-3 bg-card border-border hover:border-primary/50 transition-colors cursor-pointer">
                       <div className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
                         <Database className="w-4 h-4" />
-                        <span className="text-sm">Browse Papers</span>
+                        <span className="text-sm">{t('home.demo_browse')}</span>
                       </div>
                     </Card>
                   </Link>
@@ -246,14 +246,14 @@ export default function Home() {
                 </div>
               ) : error ? (
                 <div className="text-center py-12 text-destructive">
-                  Failed to load stats: {error}
+                  {t('home.stats_error')}: {error}
                 </div>
               ) : stats ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                   <Card className="p-6 bg-card border-border">
                     <div className="flex items-center gap-3 mb-2">
                       <FileText className="w-5 h-5 text-primary" />
-                      <span className="text-muted-foreground text-sm">Total Papers</span>
+                      <span className="text-muted-foreground text-sm">{t('home.guest_total_papers')}</span>
                     </div>
                     <p className="text-3xl font-bold text-white">{stats.total_papers}</p>
                   </Card>
@@ -261,7 +261,7 @@ export default function Home() {
                   <Card className="p-6 bg-card border-border">
                     <div className="flex items-center gap-3 mb-2">
                       <Layers className="w-5 h-5 text-primary" />
-                      <span className="text-muted-foreground text-sm">Total Chunks</span>
+                      <span className="text-muted-foreground text-sm">{t('home.guest_total_chunks')}</span>
                     </div>
                     <p className="text-3xl font-bold text-white">{stats.total_chunks.toLocaleString()}</p>
                   </Card>
@@ -269,7 +269,7 @@ export default function Home() {
                   <Card className="p-6 bg-card border-border">
                     <div className="flex items-center gap-3 mb-2">
                       <Database className="w-5 h-5 text-primary" />
-                      <span className="text-muted-foreground text-sm">Phases</span>
+                      <span className="text-muted-foreground text-sm">{t('home.guest_phases')}</span>
                     </div>
                     <p className="text-3xl font-bold text-white">{Object.keys(stats.phases).length}</p>
                   </Card>
@@ -277,7 +277,7 @@ export default function Home() {
                   <Card className="p-6 bg-card border-border">
                     <div className="flex items-center gap-3 mb-2">
                       <Calendar className="w-5 h-5 text-primary" />
-                      <span className="text-muted-foreground text-sm">Year Range</span>
+                      <span className="text-muted-foreground text-sm">{t('home.guest_year_range')}</span>
                     </div>
                     <p className="text-3xl font-bold text-white">
                       {stats.year_range.min}-{stats.year_range.max}

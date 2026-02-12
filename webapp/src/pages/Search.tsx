@@ -10,6 +10,7 @@ import { useKnowledgeBase } from '@/contexts/KnowledgeBaseContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import type { SearchResult, JobQueryResult } from '@/lib/api';
+import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,6 +64,7 @@ export default function Search() {
   const { selectedKB, isDefaultSelected } = useKnowledgeBase();
   const { accessToken } = useAuth();
   const { data: defaultStats } = useStats(accessToken || undefined);
+  const { t } = useTranslation();
 
   // Job stats for non-default KB
   const [jobStats, setJobStats] = useState<{ phases: Record<string, number>; topics: Record<string, number> } | null>(null);
@@ -180,7 +182,7 @@ export default function Search() {
               <SearchIcon className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold text-white">Search</h1>
+              <h1 className="text-2xl font-semibold text-white">{t('search.title')}</h1>
               {/* Show which KB is being searched */}
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 {isDefaultSelected ? (
@@ -188,7 +190,7 @@ export default function Search() {
                 ) : (
                   <Folder className="w-3 h-3" />
                 )}
-                <span>Searching: {selectedKB?.name}</span>
+                <span>{t('search.searching', { name: selectedKB?.name })}</span>
               </div>
             </div>
           </div>
@@ -201,7 +203,7 @@ export default function Search() {
               <div className="flex-1 relative">
                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
-                  placeholder={`Search ${isDefaultSelected ? 'the literature' : selectedKB?.name}...`}
+                  placeholder={t('search.search_placeholder', { name: isDefaultSelected ? t('chat.the_literature') : selectedKB?.name })}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
@@ -215,12 +217,12 @@ export default function Search() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="border-border bg-secondary/50 hover:bg-secondary gap-2 h-12">
                       <Filter className="w-4 h-4" />
-                      {phaseFilter || 'Phase'}
+                      {phaseFilter || t('search.phase')}
                       <ChevronDown className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="bg-card border-border">
-                    <DropdownMenuItem onClick={() => setPhaseFilter('')}>All Phases</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPhaseFilter('')}>{t('search.all_phases')}</DropdownMenuItem>
                     {phases.map(phase => (
                       <DropdownMenuItem key={phase} onClick={() => setPhaseFilter(phase)}>
                         {phase}
@@ -236,12 +238,12 @@ export default function Search() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="border-border bg-secondary/50 hover:bg-secondary gap-2 h-12">
                       <Filter className="w-4 h-4" />
-                      {topicFilter || 'Topic'}
+                      {topicFilter || t('search.topic')}
                       <ChevronDown className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="bg-card border-border">
-                    <DropdownMenuItem onClick={() => setTopicFilter('')}>All Topics</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setTopicFilter('')}>{t('search.all_topics')}</DropdownMenuItem>
                     {topics.map(topic => (
                       <DropdownMenuItem key={topic} onClick={() => setTopicFilter(topic)}>
                         {topic}
@@ -259,7 +261,7 @@ export default function Search() {
                 {loading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
-                  'Search'
+                  t('search.button')
                 )}
               </Button>
             </div>
@@ -270,7 +272,7 @@ export default function Search() {
         {error && (
           <motion.div variants={itemVariants} className="mb-8">
             <Card className="p-6 bg-destructive/10 border-destructive/50">
-              <p className="text-destructive">Search failed: {error}</p>
+              <p className="text-destructive">{t('search.search_failed', { error })}</p>
             </Card>
           </motion.div>
         )}
@@ -280,7 +282,7 @@ export default function Search() {
           <motion.div variants={itemVariants}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">
-                Results ({results.length})
+                {t('search.results', { count: results.length })}
               </h2>
             </div>
 
@@ -293,7 +295,7 @@ export default function Search() {
                       <h3 className="text-lg font-semibold text-white">{result.title}</h3>
                     </div>
                     <Badge variant="secondary" className="bg-primary/20 text-primary">
-                      Score: {(result.relevance_score * 100).toFixed(1)}%
+                      {t('search.score', { score: (result.relevance_score * 100).toFixed(1) })}
                     </Badge>
                   </div>
 
@@ -338,7 +340,7 @@ export default function Search() {
             <div className="w-16 h-16 rounded-full bg-secondary/50 flex items-center justify-center mb-4">
               <SearchIcon className="w-8 h-8 text-muted-foreground" />
             </div>
-            <p className="text-muted-foreground text-sm">No results found</p>
+            <p className="text-muted-foreground text-sm">{t('search.no_results')}</p>
           </motion.div>
         )}
 
@@ -352,11 +354,11 @@ export default function Search() {
               <SearchIcon className="w-8 h-8 text-muted-foreground" />
             </div>
             <p className="text-muted-foreground text-sm">
-              Enter a query to search {isDefaultSelected ? 'the literature' : `"${selectedKB?.name}"`}
+              {t('search.empty_prompt', { name: isDefaultSelected ? t('chat.the_literature') : `"${selectedKB?.name}"` })}
             </p>
             {selectedKB && (
               <p className="text-xs mt-2 text-muted-foreground/70">
-                {selectedKB.document_count} documents · {selectedKB.chunk_count.toLocaleString()} chunks
+                {selectedKB.document_count} {t('kb.docs')} · {selectedKB.chunk_count.toLocaleString()} {t('kb.chunks')}
               </p>
             )}
           </motion.div>

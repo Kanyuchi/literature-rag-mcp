@@ -41,7 +41,47 @@ function useApiCall<T>(fetchFn: () => Promise<T>, deps: unknown[] = []) {
 
 // Hook for stats
 export function useStats(accessToken?: string) {
-  return useApiCall(() => api.getStats(accessToken), [accessToken]);
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.getStats>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchStats() {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await api.getStats(accessToken);
+        if (mounted) {
+          setData(result);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        const isAuthError = message.includes('401') || message.toLowerCase().includes('authentication');
+        if (mounted) {
+          if (isAuthError) {
+            setError(null);
+            setData(null);
+          } else {
+            setError(message);
+          }
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchStats();
+
+    return () => {
+      mounted = false;
+    };
+  }, [accessToken]);
+
+  return { data, loading, error };
 }
 
 // Hook for papers

@@ -996,6 +996,11 @@ async def health_check():
             stats={"error": str(e)}
         )
 
+@app.get("/healthz")
+async def healthz():
+    """Lightweight health check for container liveness."""
+    return {"status": "ok"}
+
 
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(require_auth_if_configured)])
 async def query_literature(request: QueryRequest):

@@ -24,17 +24,23 @@ function useCytoscape(
   nodes: KnowledgeGraphNode[],
   edges: KnowledgeGraphEdge[],
   isLoading: boolean,
-  container: HTMLDivElement | null,
-  cyInstance: cytoscape.Core | null,
-  setCyInstance: (cy: cytoscape.Core | null) => void
+  container: HTMLDivElement | null
 ) {
+  const cyRef = useRef<cytoscape.Core | null>(null);
+
+  useEffect(() => {
+    if (!container) return;
+    return () => {
+      if (cyRef.current) {
+        cyRef.current.destroy();
+        cyRef.current = null;
+      }
+    };
+  }, [container]);
+
   useEffect(() => {
     if (isLoading) return;
     if (!container) return;
-    if (cyInstance) {
-      cyInstance.destroy();
-      setCyInstance(null);
-    }
 
     const elements = [
       ...nodes.map(node => ({
@@ -54,57 +60,52 @@ function useCytoscape(
       }))
     ];
 
-    const cy = cytoscape({
-      container,
-      elements,
-      style: [
-        {
-          selector: 'node',
-          style: {
-            'background-color': (ele: any) => hashToColor(ele.data('cluster')),
-            label: 'data(label)',
-            color: '#e2e8f0',
-            'text-outline-width': 2,
-            'text-outline-color': '#0f172a',
-            'font-size': 10,
-            'text-max-width': '80px',
-            'text-wrap': 'ellipsis',
+    if (!cyRef.current) {
+      cyRef.current = cytoscape({
+        container,
+        elements,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'background-color': (ele: any) => hashToColor(ele.data('cluster')),
+              label: 'data(label)',
+              color: '#e2e8f0',
+              'text-outline-width': 2,
+              'text-outline-color': '#0f172a',
+              'font-size': 10,
+              'text-max-width': '80px',
+              'text-wrap': 'ellipsis',
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              width: 1,
+              'line-color': 'rgba(148,163,184,0.35)',
+              'curve-style': 'bezier',
+              'target-arrow-shape': 'triangle',
+              'target-arrow-color': 'rgba(148,163,184,0.4)',
+            }
           }
-        },
-        {
-          selector: 'edge',
-          style: {
-            width: 1,
-            'line-color': 'rgba(148,163,184,0.35)',
-            'curve-style': 'bezier',
-            'target-arrow-shape': 'triangle',
-            'target-arrow-color': 'rgba(148,163,184,0.4)',
-          }
-        }
-      ],
-      layout: {
-        name: 'fcose',
-        animate: true,
-        randomize: true,
-        nodeSeparation: 80,
-        idealEdgeLength: 140,
-      } as any
-    });
+        ],
+      });
+    } else {
+      cyRef.current.json({ elements });
+    }
 
-    cy.ready(() => {
-      cy.resize();
-      cy.fit();
-    });
-    setTimeout(() => {
-      cy.resize();
-      cy.fit();
-    }, 0);
+    const layout = cyRef.current.layout({
+      name: 'fcose',
+      animate: true,
+      randomize: true,
+      nodeSeparation: 80,
+      idealEdgeLength: 140,
+    } as any);
+    layout.run();
 
-    setCyInstance(cy);
-    return () => {
-      cy.destroy();
-    };
-  }, [nodes, edges, isLoading, container, cyInstance, setCyInstance]);
+    cyRef.current.resize();
+    cyRef.current.fit();
+  }, [nodes, edges, isLoading, container]);
 }
 
 export default function KnowledgeGraph() {
@@ -118,7 +119,6 @@ export default function KnowledgeGraph() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
   const graphRef = useRef<HTMLDivElement | null>(null);
 
   const jobId = selectedKB && !selectedKB.isDefault ? Number(selectedKB.id) : null;
@@ -178,7 +178,7 @@ export default function KnowledgeGraph() {
     [edges, renderNodes]
   );
 
-  useCytoscape(renderNodes, renderEdges, isLoading, graphRef.current, cyInstance, setCyInstance);
+  useCytoscape(renderNodes, renderEdges, isLoading, graphRef.current);
 
   if (authLoading || (!isAuthenticated && !authLoading)) {
     return (

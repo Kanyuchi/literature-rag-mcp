@@ -126,6 +126,8 @@ export interface KnowledgeClaimInfo {
   doc_id: string;
   paragraph_index?: number | null;
   claim_text: string;
+  cluster_id?: string | null;
+  cluster_name?: string | null;
   gaps: KnowledgeGapInfo[];
 }
 

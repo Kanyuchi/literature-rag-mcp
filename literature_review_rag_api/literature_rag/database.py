@@ -270,6 +270,38 @@ class KnowledgeEdge(Base):
 
     def __repr__(self):
         return f"<KnowledgeEdge(source={self.source_entity_id}, target={self.target_entity_id}, relation={self.relation_type})>"
+
+
+class KnowledgeEntityOccurrence(Base):
+    """Links entities to documents/claims for graph-aware retrieval."""
+    __tablename__ = "knowledge_entity_occurrences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    entity_id = Column(Integer, ForeignKey("knowledge_entities.id"), nullable=False, index=True)
+    doc_id = Column(String(255), nullable=False, index=True)
+    claim_id = Column(Integer, ForeignKey("knowledge_claims.id"), nullable=True, index=True)
+    paragraph_index = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<KnowledgeEntityOccurrence(entity_id={self.entity_id}, doc_id={self.doc_id})>"
+
+
+class KnowledgeCluster(Base):
+    """Cluster summaries for knowledge graph."""
+    __tablename__ = "knowledge_clusters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    cluster_id = Column(String(100), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    summary = Column(Text, nullable=True)
+    node_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<KnowledgeCluster(cluster_id={self.cluster_id}, name={self.name})>"
 class ChatSession(Base):
     """Chat session for a job (knowledge base)."""
     __tablename__ = "chat_sessions"
@@ -456,6 +488,12 @@ def _run_migrations():
     if not inspector.has_table("knowledge_edges"):
         logger.info("Migrating: creating knowledge_edges table")
         Base.metadata.tables["knowledge_edges"].create(bind=engine)
+    if not inspector.has_table("knowledge_entity_occurrences"):
+        logger.info("Migrating: creating knowledge_entity_occurrences table")
+        Base.metadata.tables["knowledge_entity_occurrences"].create(bind=engine)
+    if not inspector.has_table("knowledge_clusters"):
+        logger.info("Migrating: creating knowledge_clusters table")
+        Base.metadata.tables["knowledge_clusters"].create(bind=engine)
 
     if not inspector.has_table("data_source_connections"):
         logger.info("Migrating: creating data_source_connections table")
@@ -805,6 +843,7 @@ class KnowledgeGapCRUD:
 
 class KnowledgeEntityCRUD:
     """CRUD operations for KnowledgeEntity model."""
+    model = KnowledgeEntity
 
     @staticmethod
     def get_or_create(
@@ -859,6 +898,7 @@ class KnowledgeEntityCRUD:
 
 class KnowledgeEdgeCRUD:
     """CRUD operations for KnowledgeEdge model."""
+    model = KnowledgeEdge
 
     @staticmethod
     def create(
@@ -901,6 +941,108 @@ class KnowledgeEdgeCRUD:
     def delete_for_job(db: Session, job_id: int) -> None:
         db.query(KnowledgeEdge).filter(
             KnowledgeEdge.job_id == job_id
+        ).delete()
+        db.commit()
+
+
+class KnowledgeEntityOccurrenceCRUD:
+    """CRUD operations for KnowledgeEntityOccurrence model."""
+    model = KnowledgeEntityOccurrence
+
+    @staticmethod
+    def create(
+        db: Session,
+        job_id: int,
+        entity_id: int,
+        doc_id: str,
+        claim_id: Optional[int] = None,
+        paragraph_index: Optional[int] = None
+    ) -> KnowledgeEntityOccurrence:
+        occurrence = KnowledgeEntityOccurrence(
+            job_id=job_id,
+            entity_id=entity_id,
+            doc_id=doc_id,
+            claim_id=claim_id,
+            paragraph_index=paragraph_index
+        )
+        db.add(occurrence)
+        db.commit()
+        db.refresh(occurrence)
+        return occurrence
+
+    @staticmethod
+    def list_entity_ids_for_docs(db: Session, job_id: int, doc_ids: List[str], limit: int = 200) -> List[int]:
+        if not doc_ids:
+            return []
+        rows = db.query(KnowledgeEntityOccurrence.entity_id).filter(
+            KnowledgeEntityOccurrence.job_id == job_id,
+            KnowledgeEntityOccurrence.doc_id.in_(doc_ids)
+        ).distinct().limit(limit).all()
+        return [row[0] for row in rows]
+
+    @staticmethod
+    def list_doc_ids_for_entities(db: Session, job_id: int, entity_ids: List[int], limit: int = 200) -> List[str]:
+        if not entity_ids:
+            return []
+        rows = db.query(KnowledgeEntityOccurrence.doc_id).filter(
+            KnowledgeEntityOccurrence.job_id == job_id,
+            KnowledgeEntityOccurrence.entity_id.in_(entity_ids)
+        ).distinct().limit(limit).all()
+        return [row[0] for row in rows]
+
+    @staticmethod
+    def delete_for_job(db: Session, job_id: int) -> None:
+        db.query(KnowledgeEntityOccurrence).filter(
+            KnowledgeEntityOccurrence.job_id == job_id
+        ).delete()
+        db.commit()
+
+
+class KnowledgeClusterCRUD:
+    """CRUD operations for KnowledgeCluster model."""
+
+    @staticmethod
+    def upsert(
+        db: Session,
+        job_id: int,
+        cluster_id: str,
+        name: str,
+        summary: Optional[str],
+        node_count: int
+    ) -> KnowledgeCluster:
+        existing = db.query(KnowledgeCluster).filter(
+            KnowledgeCluster.job_id == job_id,
+            KnowledgeCluster.cluster_id == cluster_id
+        ).first()
+        if existing:
+            existing.name = name
+            existing.summary = summary
+            existing.node_count = node_count
+            db.commit()
+            db.refresh(existing)
+            return existing
+        cluster = KnowledgeCluster(
+            job_id=job_id,
+            cluster_id=cluster_id,
+            name=name,
+            summary=summary,
+            node_count=node_count
+        )
+        db.add(cluster)
+        db.commit()
+        db.refresh(cluster)
+        return cluster
+
+    @staticmethod
+    def list_for_job(db: Session, job_id: int) -> List[KnowledgeCluster]:
+        return db.query(KnowledgeCluster).filter(
+            KnowledgeCluster.job_id == job_id
+        ).order_by(KnowledgeCluster.node_count.desc()).all()
+
+    @staticmethod
+    def delete_for_job(db: Session, job_id: int) -> None:
+        db.query(KnowledgeCluster).filter(
+            KnowledgeCluster.job_id == job_id
         ).delete()
         db.commit()
 

@@ -1206,7 +1206,7 @@ async def chat_with_job(
                 term_maps = json.loads(job.term_maps)
             except Exception:
                 term_maps = None
-        job_rag = JobCollectionRAG(collection, term_maps=term_maps)
+        job_rag = JobCollectionRAG(collection, term_maps=term_maps, job_id=job_id)
 
         # Initialize Groq client
         groq_client = Groq(api_key=groq_api_key)

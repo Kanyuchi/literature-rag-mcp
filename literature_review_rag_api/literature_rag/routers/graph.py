@@ -12,9 +12,10 @@ from ..auth import get_current_user
 from ..config import load_config
 from ..database import (
     get_db, JobCRUD, KnowledgeClaimCRUD,
-    KnowledgeEntityCRUD, KnowledgeEdgeCRUD
+    KnowledgeEntityCRUD, KnowledgeEdgeCRUD,
+    KnowledgeEntityOccurrenceCRUD, KnowledgeClusterCRUD
 )
-from ..models import KnowledgeGraphResponse, KnowledgeGraphRunResponse
+from ..models import KnowledgeGraphResponse, KnowledgeGraphRunResponse, KnowledgeGraphClusterResponse
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,58 @@ def _refine_graph(raw_entities: List[Dict[str, Any]], raw_relations: List[Dict[s
     return {"entities": refined_entities, "relations": refined_relations}
 
 
+def _summarize_cluster(entities: List[str], relations: List[str]) -> str:
+    graph_cfg = getattr(config, "graph", None)
+    provider = getattr(graph_cfg, "llm_provider", "openai")
+    model = getattr(graph_cfg, "llm_model", "gpt-4.1-mini")
+    max_entities = getattr(graph_cfg, "cluster_summary_max_entities", 20)
+    max_relations = getattr(graph_cfg, "cluster_summary_max_relations", 20)
+
+    prompt = (
+        "Summarize the following knowledge cluster in 1-2 sentences. "
+        "Mention the dominant themes and key concepts.\n\n"
+        f"Entities: {', '.join(entities[:max_entities])}\n"
+        f"Relations: {', '.join(relations[:max_relations])}\n\nSummary:"
+    )
+
+    try:
+        if provider == "openai":
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY not configured")
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=model,
+                temperature=0.2,
+                max_tokens=120,
+                messages=[
+                    {"role": "system", "content": "Return plain text only."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+        else:
+            groq_api_key = config.llm.groq_api_key or os.getenv("GROQ_API_KEY")
+            if not groq_api_key:
+                raise RuntimeError("Groq API key not configured")
+            from groq import Groq
+            client = Groq(api_key=groq_api_key)
+            response = client.chat.completions.create(
+                model=config.llm.model,
+                temperature=0.2,
+                max_tokens=120,
+                messages=[
+                    {"role": "system", "content": "Return plain text only."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        if entities:
+            return f"Cluster covering: {', '.join(entities[:6])}."
+        return "Cluster of related concepts."
+
+
 @router.post("/{job_id}/graph/build", response_model=KnowledgeGraphRunResponse)
 async def build_knowledge_graph(
     job_id: int,
@@ -170,6 +223,8 @@ async def build_knowledge_graph(
     claims = KnowledgeClaimCRUD.list_for_job(db, job_id, limit=claim_limit)
     KnowledgeEdgeCRUD.delete_for_job(db, job_id)
     KnowledgeEntityCRUD.delete_for_job(db, job_id)
+    KnowledgeEntityOccurrenceCRUD.delete_for_job(db, job_id)
+    KnowledgeClusterCRUD.delete_for_job(db, job_id)
 
     raw_entities: List[Dict[str, Any]] = []
     raw_relations: List[Dict[str, Any]] = []
@@ -181,7 +236,13 @@ async def build_knowledge_graph(
             if not name:
                 continue
             entity_type = str(ent.get("type", "concept")).strip()
-            raw_entities.append({"name": name, "type": entity_type})
+            raw_entities.append({
+                "name": name,
+                "type": entity_type,
+                "doc_id": claim.doc_id,
+                "claim_id": claim.id,
+                "paragraph_index": claim.paragraph_index
+            })
 
         for rel in extracted.get("relations", [])[:10]:
             source = str(rel.get("source", "")).strip()
@@ -203,6 +264,19 @@ async def build_knowledge_graph(
         entity = KnowledgeEntityCRUD.get_or_create(db, job_id, name, entity_type, cluster)
         entity_map[name] = entity
 
+    for ent in raw_entities:
+        name = str(ent.get("name", "")).strip()
+        if not name or name not in entity_map:
+            continue
+        KnowledgeEntityOccurrenceCRUD.create(
+            db=db,
+            job_id=job_id,
+            entity_id=entity_map[name].id,
+            doc_id=str(ent.get("doc_id", "")),
+            claim_id=ent.get("claim_id"),
+            paragraph_index=ent.get("paragraph_index")
+        )
+
     for rel in refined.get("relations", [])[:800]:
         source = str(rel.get("source", "")).strip()
         target = str(rel.get("target", "")).strip()
@@ -219,6 +293,58 @@ async def build_knowledge_graph(
             relation_type=relation_type,
             weight=1.0
         )
+
+    graph_cfg = getattr(config, "graph", None)
+    if getattr(graph_cfg, "cluster_summaries_enabled", True):
+        # Build cluster summaries (connected components)
+        entities = KnowledgeEntityCRUD.list_for_job(db, job_id, limit=1000)
+        edges = KnowledgeEdgeCRUD.list_for_job(db, job_id, limit=2000)
+        adjacency = {e.id: set() for e in entities}
+        for edge in edges:
+            adjacency.setdefault(edge.source_entity_id, set()).add(edge.target_entity_id)
+            adjacency.setdefault(edge.target_entity_id, set()).add(edge.source_entity_id)
+
+        visited = set()
+        clusters = []
+        for entity in entities:
+            if entity.id in visited:
+                continue
+            stack = [entity.id]
+            component = []
+            while stack:
+                node_id = stack.pop()
+                if node_id in visited:
+                    continue
+                visited.add(node_id)
+                component.append(node_id)
+                for neighbor in adjacency.get(node_id, []):
+                    if neighbor not in visited:
+                        stack.append(neighbor)
+            if component:
+                clusters.append(component)
+
+        for idx, component in enumerate(clusters, start=1):
+            cluster_id = f"cluster_{idx}"
+            cluster_entities = [e for e in entities if e.id in component]
+            entity_names = [e.name for e in cluster_entities]
+            relation_names = [
+                edge.relation_type
+                for edge in edges
+                if edge.source_entity_id in component or edge.target_entity_id in component
+            ]
+            summary = _summarize_cluster(entity_names, relation_names)
+            KnowledgeClusterCRUD.upsert(
+                db=db,
+                job_id=job_id,
+                cluster_id=cluster_id,
+                name=entity_names[0] if entity_names else cluster_id,
+                summary=summary,
+                node_count=len(component)
+            )
+            for e in cluster_entities:
+                if not e.cluster:
+                    e.cluster = cluster_id
+            db.commit()
 
     return {
         "claims_processed": len(claims),
@@ -250,5 +376,30 @@ async def get_knowledge_graph(
         "edges": [
             {"source": e.source_entity_id, "target": e.target_entity_id, "relation_type": e.relation_type, "weight": e.weight}
             for e in edges
+        ],
+        "clusters": [
+            {"cluster_id": c.cluster_id, "name": c.name, "summary": c.summary, "node_count": c.node_count}
+            for c in clusters
+        ]
+    }
+
+
+@router.get("/{job_id}/graph/clusters", response_model=KnowledgeGraphClusterResponse)
+async def get_graph_clusters(
+    job_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    job = JobCRUD.get_by_id(db, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    clusters = KnowledgeClusterCRUD.list_for_job(db, job_id)
+    return {
+        "clusters": [
+            {"cluster_id": c.cluster_id, "name": c.name, "summary": c.summary, "node_count": c.node_count}
+            for c in clusters
         ]
     }

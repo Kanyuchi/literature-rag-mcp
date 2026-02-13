@@ -202,6 +202,14 @@ insights:
 graph:
   llm_provider: "openai"
   llm_model: "gpt-4.1-mini"
+  enable_graph_rag: true
+  query_expansion_enabled: true
+  query_expansion_max_terms: 12
+  query_expansion_max_hops: 1
+  query_expansion_seed_entities: 30
+  cluster_summaries_enabled: true
+  cluster_summary_max_entities: 20
+  cluster_summary_max_relations: 20
 
 # ----------------------------------------------------------------------------
 # QUERY NORMALIZATION (KEY PATTERN FROM PERSONALITY RAG)

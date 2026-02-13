@@ -194,6 +194,14 @@ class GraphConfig:
     """Knowledge graph configuration."""
     llm_provider: str = "openai"
     llm_model: str = "gpt-4.1-mini"
+    enable_graph_rag: bool = True
+    query_expansion_enabled: bool = True
+    query_expansion_max_terms: int = 12
+    query_expansion_max_hops: int = 1
+    query_expansion_seed_entities: int = 30
+    cluster_summaries_enabled: bool = True
+    cluster_summary_max_entities: int = 20
+    cluster_summary_max_relations: int = 20
 
 
 @dataclass
@@ -543,7 +551,15 @@ def _load_graph_config(yaml_graph: dict) -> GraphConfig:
     """Load knowledge graph configuration."""
     return GraphConfig(
         llm_provider=yaml_graph.get("llm_provider", "openai"),
-        llm_model=yaml_graph.get("llm_model", "gpt-4.1-mini")
+        llm_model=yaml_graph.get("llm_model", "gpt-4.1-mini"),
+        enable_graph_rag=yaml_graph.get("enable_graph_rag", True),
+        query_expansion_enabled=yaml_graph.get("query_expansion_enabled", True),
+        query_expansion_max_terms=yaml_graph.get("query_expansion_max_terms", 12),
+        query_expansion_max_hops=yaml_graph.get("query_expansion_max_hops", 1),
+        query_expansion_seed_entities=yaml_graph.get("query_expansion_seed_entities", 30),
+        cluster_summaries_enabled=yaml_graph.get("cluster_summaries_enabled", True),
+        cluster_summary_max_entities=yaml_graph.get("cluster_summary_max_entities", 20),
+        cluster_summary_max_relations=yaml_graph.get("cluster_summary_max_relations", 20)
     )
 
 

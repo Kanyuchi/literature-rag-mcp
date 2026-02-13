@@ -410,6 +410,11 @@ class KnowledgeGraphEdge(BaseModel):
 class KnowledgeGraphResponse(BaseModel):
     nodes: List[KnowledgeGraphNode]
     edges: List[KnowledgeGraphEdge]
+    clusters: Optional[List[Dict[str, Any]]] = None
+
+
+class KnowledgeGraphClusterResponse(BaseModel):
+    clusters: List[Dict[str, Any]]
 
 
 class KnowledgeGraphRunResponse(BaseModel):

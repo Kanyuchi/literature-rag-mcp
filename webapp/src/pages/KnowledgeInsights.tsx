@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useKnowledgeBase } from '../contexts/KnowledgeBaseContext';
 import { api } from '../lib/api';
-import type { KnowledgeClaimInfo } from '../lib/api';
+import type { KnowledgeClaimInfo, KnowledgeGraphCluster } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 import { Lightbulb, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 
@@ -14,6 +14,7 @@ export default function KnowledgeInsights() {
   const { t } = useTranslation();
 
   const [claims, setClaims] = useState<KnowledgeClaimInfo[]>([]);
+  const [clusters, setClusters] = useState<KnowledgeGraphCluster[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,8 @@ export default function KnowledgeInsights() {
     try {
       const response = await api.getKnowledgeInsights(jobId, accessToken);
       setClaims(response.claims || []);
+      const clusterResponse = await api.getKnowledgeGraphClusters(jobId, accessToken);
+      setClusters(clusterResponse.clusters || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('insights.error_loading'));
     } finally {
@@ -136,6 +139,32 @@ export default function KnowledgeInsights() {
             <p className="text-2xl font-bold text-foreground">{weakCount}</p>
           </div>
         </div>
+
+        {clusters.length > 0 && (
+          <div className="bg-card border border-border rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">{t('insights.clusters_title')}</h2>
+                <p className="text-xs text-muted-foreground">{t('insights.clusters_subtitle')}</p>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {clusters.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {clusters.slice(0, 6).map((cluster) => (
+                <div key={cluster.cluster_id} className="border border-border rounded-md p-3 bg-secondary/30">
+                  <div className="text-sm font-medium text-foreground">
+                    {cluster.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {cluster.summary || t('insights.empty')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive flex items-center gap-2">

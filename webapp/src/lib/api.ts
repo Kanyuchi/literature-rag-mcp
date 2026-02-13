@@ -154,6 +154,13 @@ export interface KnowledgeGraphEdge {
   weight: number;
 }
 
+export interface KnowledgeGraphCluster {
+  cluster_id: string;
+  name: string;
+  summary?: string | null;
+  node_count: number;
+}
+
 export interface DataSourceConnection {
   provider: string;
   status: string;
@@ -167,6 +174,11 @@ export interface DataSourceConnectionListResponse {
 export interface KnowledgeGraphResponse {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
+  clusters?: KnowledgeGraphCluster[];
+}
+
+export interface KnowledgeGraphClusterResponse {
+  clusters: KnowledgeGraphCluster[];
 }
 
 export interface KnowledgeGraphRunResponse {
@@ -1080,6 +1092,17 @@ class ApiClient {
       headers.Authorization = `Bearer ${accessToken}`;
     }
     return this.fetch(`/api/jobs/${jobId}/graph`, { headers });
+  }
+
+  async getKnowledgeGraphClusters(
+    jobId: number,
+    accessToken?: string
+  ): Promise<KnowledgeGraphClusterResponse> {
+    const headers: Record<string, string> = {};
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    return this.fetch(`/api/jobs/${jobId}/graph/clusters`, { headers });
   }
 
   // Data sources

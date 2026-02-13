@@ -13,6 +13,7 @@ import chromadb
 from langchain_core.embeddings import Embeddings
 
 from .config import load_config
+from .database import get_db_session, KnowledgeEntityOccurrenceCRUD, KnowledgeEdgeCRUD, KnowledgeEntityCRUD
 from .embeddings import get_embeddings, get_embedding_info
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,8 @@ class JobCollectionRAG:
         self,
         collection: chromadb.Collection,
         embedding_model: str = None,
-        term_maps: Optional[Dict[str, List[List[str]]]] = None
+        term_maps: Optional[Dict[str, List[List[str]]]] = None,
+        job_id: Optional[int] = None
     ):
         """
         Initialize the job collection RAG.
@@ -42,6 +44,7 @@ class JobCollectionRAG:
         """
         self.collection = collection
         self.config = load_config()
+        self.job_id = job_id
         self.term_maps = term_maps or {}
         self.normalization_enabled = bool(term_maps)
 
@@ -63,6 +66,14 @@ class JobCollectionRAG:
             "model": self.config.retrieval.reranker_model,
             "rerank_top_k": self.config.retrieval.rerank_top_k,
             "device": device
+        }
+        graph_cfg = getattr(self.config, "graph", None)
+        self._graph_config = {
+            "enabled": getattr(graph_cfg, "enable_graph_rag", True),
+            "query_expansion_enabled": getattr(graph_cfg, "query_expansion_enabled", True),
+            "query_expansion_max_terms": getattr(graph_cfg, "query_expansion_max_terms", 12),
+            "query_expansion_max_hops": getattr(graph_cfg, "query_expansion_max_hops", 1),
+            "query_expansion_seed_entities": getattr(graph_cfg, "query_expansion_seed_entities", 30),
         }
 
         logger.info(f"JobCollectionRAG initialized for collection: {collection.name} (embedding: {self._embedding_info['provider']})")
@@ -103,6 +114,44 @@ class JobCollectionRAG:
         if expansion_terms and self.config.retrieval.expand_queries:
             return question + " " + " ".join(expansion_terms)
         return question
+
+    def _graph_expand_terms(self, seed_doc_ids: List[str]) -> List[str]:
+        if not self._graph_config.get("enabled") or not self._graph_config.get("query_expansion_enabled"):
+            return []
+        if not self.job_id or not seed_doc_ids:
+            return []
+
+        db = get_db_session()
+        try:
+            entity_ids = KnowledgeEntityOccurrenceCRUD.list_entity_ids_for_docs(
+                db,
+                self.job_id,
+                seed_doc_ids,
+                limit=self._graph_config.get("query_expansion_seed_entities", 30)
+            )
+            if not entity_ids:
+                return []
+
+            # Traverse graph edges for neighbor entities
+            current_ids = set(entity_ids)
+            hops = max(0, int(self._graph_config.get("query_expansion_max_hops", 1)))
+            for _ in range(hops):
+                edges = db.query(KnowledgeEdgeCRUD.model).filter(
+                    KnowledgeEdgeCRUD.model.job_id == self.job_id,
+                    (KnowledgeEdgeCRUD.model.source_entity_id.in_(current_ids)
+                     | KnowledgeEdgeCRUD.model.target_entity_id.in_(current_ids))
+                ).all()
+                for edge in edges:
+                    current_ids.add(edge.source_entity_id)
+                    current_ids.add(edge.target_entity_id)
+
+            names = db.query(KnowledgeEntityCRUD.model.name).filter(
+                KnowledgeEntityCRUD.model.job_id == self.job_id,
+                KnowledgeEntityCRUD.model.id.in_(list(current_ids))
+            ).limit(self._graph_config.get("query_expansion_max_terms", 12)).all()
+            return [row[0] for row in names if row and row[0]]
+        finally:
+            db.close()
 
     def _get_reranker(self):
         if not self._reranker_config.get("enabled"):
@@ -198,6 +247,27 @@ class JobCollectionRAG:
 
         results = self._postprocess_results(results, n_results)
 
+        # GraphRAG-style query expansion using related entities
+        if self._graph_config.get("enabled") and self._graph_config.get("query_expansion_enabled"):
+            try:
+                doc_ids = [
+                    meta.get("doc_id")
+                    for meta in (results.get("metadatas", [[]])[0] or [])
+                    if meta and meta.get("doc_id")
+                ]
+                expansion_terms = self._graph_expand_terms(doc_ids)
+                if expansion_terms:
+                    expanded_query_graph = expanded_query + " " + " ".join(expansion_terms)
+                    graph_results = self.collection.query(
+                        query_embeddings=[self.embeddings.embed_query(expanded_query_graph)],
+                        n_results=candidate_k,
+                        where=where_filter,
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    results = self._merge_results(results, graph_results, n_results)
+            except Exception as e:
+                logger.warning(f"Graph expansion skipped due to error: {e}")
+
         # Rerank if enabled
         reranker = self._get_reranker() if rerank_enabled else None
         if reranker and results.get("documents") and results["documents"][0]:
@@ -263,6 +333,21 @@ class JobCollectionRAG:
             "distances": [deduped_dists],
             "ids": results.get("ids", [[]])
         }
+
+    def _merge_results(self, primary: dict, secondary: dict, n_results: int) -> dict:
+        """Merge two result sets then dedupe by doc_id."""
+        if not secondary or not secondary.get("documents") or not secondary["documents"][0]:
+            return primary
+        if not primary or not primary.get("documents") or not primary["documents"][0]:
+            return self._postprocess_results(secondary, n_results)
+
+        combined = {
+            "documents": [primary["documents"][0] + secondary["documents"][0]],
+            "metadatas": [primary["metadatas"][0] + secondary["metadatas"][0]],
+            "distances": [primary["distances"][0] + secondary["distances"][0]],
+            "ids": [primary.get("ids", [[]])[0] + secondary.get("ids", [[]])[0]]
+        }
+        return self._postprocess_results(combined, n_results)
 
     def get_stats(self) -> Dict[str, Any]:
         """

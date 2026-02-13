@@ -397,6 +397,7 @@ class KnowledgeGraphNode(BaseModel):
     id: int
     name: str
     entity_type: str
+    cluster: Optional[str] = None
 
 
 class KnowledgeGraphEdge(BaseModel):

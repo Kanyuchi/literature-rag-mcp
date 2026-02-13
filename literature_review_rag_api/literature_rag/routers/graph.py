@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from typing import List
+from typing import List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from sqlalchemy.orm import Session
@@ -90,6 +90,70 @@ def _extract_entities_relations(claim_text: str) -> dict:
     }
 
 
+def _refine_graph(raw_entities: List[Dict[str, Any]], raw_relations: List[Dict[str, Any]]) -> dict:
+    graph_cfg = getattr(config, "graph", None)
+    provider = getattr(graph_cfg, "llm_provider", "openai")
+    model = getattr(graph_cfg, "llm_model", "gpt-4.1-mini")
+
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OPENAI_API_KEY not configured for graph refinement"
+            )
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+    else:
+        groq_api_key = config.llm.groq_api_key or os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Groq API key not configured for graph refinement"
+            )
+        from groq import Groq
+        client = Groq(api_key=groq_api_key)
+
+    trimmed_entities = raw_entities[:200]
+    trimmed_relations = raw_relations[:300]
+
+    prompt = (
+        "You are refining a knowledge graph from extracted claims. "
+        "Merge obvious duplicates and normalize names (short, consistent). "
+        "Return JSON with keys: entities and relations. "
+        "Each entity: {name, type, cluster}. "
+        "Cluster is a short theme label (2-4 words) grouping related entities. "
+        "Each relation: {source, target, relation}. "
+        "Only keep relations where both entities exist. "
+        "Avoid redundant edges.\n\n"
+        f"ENTITIES: {json.dumps(trimmed_entities)}\n\n"
+        f"RELATIONS: {json.dumps(trimmed_relations)}\n\n"
+        "JSON:"
+    )
+
+    response = client.chat.completions.create(
+        model=model if provider == "openai" else config.llm.model,
+        temperature=0.1,
+        max_tokens=800,
+        messages=[
+            {"role": "system", "content": "Return JSON only."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    content = response.choices[0].message.content.strip()
+    data = _extract_json(content)
+    if not isinstance(data, dict):
+        return {"entities": raw_entities, "relations": raw_relations}
+    refined_entities = data.get("entities", []) or []
+    refined_relations = data.get("relations", []) or []
+    if not refined_entities:
+        refined_entities = raw_entities
+    if not refined_relations:
+        refined_relations = raw_relations
+    return {"entities": refined_entities, "relations": refined_relations}
+
+
 @router.post("/{job_id}/graph/build", response_model=KnowledgeGraphRunResponse)
 async def build_knowledge_graph(
     job_id: int,
@@ -107,16 +171,17 @@ async def build_knowledge_graph(
     KnowledgeEdgeCRUD.delete_for_job(db, job_id)
     KnowledgeEntityCRUD.delete_for_job(db, job_id)
 
+    raw_entities: List[Dict[str, Any]] = []
+    raw_relations: List[Dict[str, Any]] = []
+
     for claim in claims:
         extracted = _extract_entities_relations(claim.claim_text)
-        entity_map = {}
         for ent in extracted.get("entities", [])[:10]:
             name = str(ent.get("name", "")).strip()
             if not name:
                 continue
             entity_type = str(ent.get("type", "concept")).strip()
-            entity = KnowledgeEntityCRUD.get_or_create(db, job_id, name, entity_type)
-            entity_map[name] = entity
+            raw_entities.append({"name": name, "type": entity_type})
 
         for rel in extracted.get("relations", [])[:10]:
             source = str(rel.get("source", "")).strip()
@@ -124,18 +189,36 @@ async def build_knowledge_graph(
             relation_type = str(rel.get("relation", "related_to")).strip()
             if not source or not target:
                 continue
-            if source not in entity_map or target not in entity_map:
-                continue
-            KnowledgeEdgeCRUD.create(
-                db=db,
-                job_id=job_id,
-                source_entity_id=entity_map[source].id,
-                target_entity_id=entity_map[target].id,
-                relation_type=relation_type,
-                claim_id=claim.id,
-                weight=1.0
-            )
-        # entities + edges are committed within CRUD helpers
+            raw_relations.append({"source": source, "target": target, "relation": relation_type})
+
+    refined = _refine_graph(raw_entities, raw_relations)
+    entity_map: Dict[str, Any] = {}
+
+    for ent in refined.get("entities", [])[:400]:
+        name = str(ent.get("name", "")).strip()
+        if not name:
+            continue
+        entity_type = str(ent.get("type", "concept")).strip()
+        cluster = str(ent.get("cluster", "")).strip() or None
+        entity = KnowledgeEntityCRUD.get_or_create(db, job_id, name, entity_type, cluster)
+        entity_map[name] = entity
+
+    for rel in refined.get("relations", [])[:800]:
+        source = str(rel.get("source", "")).strip()
+        target = str(rel.get("target", "")).strip()
+        relation_type = str(rel.get("relation", "related_to")).strip()
+        if not source or not target:
+            continue
+        if source not in entity_map or target not in entity_map:
+            continue
+        KnowledgeEdgeCRUD.create(
+            db=db,
+            job_id=job_id,
+            source_entity_id=entity_map[source].id,
+            target_entity_id=entity_map[target].id,
+            relation_type=relation_type,
+            weight=1.0
+        )
 
     return {
         "claims_processed": len(claims),
@@ -161,7 +244,7 @@ async def get_knowledge_graph(
 
     return {
         "nodes": [
-            {"id": e.id, "name": e.name, "entity_type": e.entity_type}
+            {"id": e.id, "name": e.name, "entity_type": e.entity_type, "cluster": e.cluster}
             for e in entities
         ],
         "edges": [

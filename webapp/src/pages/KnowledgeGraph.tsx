@@ -6,21 +6,96 @@ import { api } from '../lib/api';
 import type { KnowledgeGraphNode, KnowledgeGraphEdge } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 import { Share2, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
 
-function buildCircleLayout(nodes: KnowledgeGraphNode[]) {
-  const radius = 160;
-  const centerX = 200;
-  const centerY = 200;
-  const positions: Record<number, { x: number; y: number }> = {};
-  const total = nodes.length || 1;
-  nodes.forEach((node, idx) => {
-    const angle = (idx / total) * Math.PI * 2;
-    positions[node.id] = {
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
+cytoscape.use(fcose);
+
+function hashToColor(input: string) {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = input.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 70%, 55%)`;
+}
+
+function useCytoscape(
+  nodes: KnowledgeGraphNode[],
+  edges: KnowledgeGraphEdge[],
+  isLoading: boolean,
+  cyInstance: cytoscape.Core | null,
+  setCyInstance: (cy: cytoscape.Core | null) => void
+) {
+  useEffect(() => {
+    if (isLoading) return;
+    const container = document.getElementById('graph-view');
+    if (!container) return;
+    if (cyInstance) {
+      cyInstance.destroy();
+      setCyInstance(null);
+    }
+
+    const elements = [
+      ...nodes.map(node => ({
+        data: {
+          id: String(node.id),
+          label: node.name,
+          cluster: node.cluster || node.entity_type || 'concept',
+        }
+      })),
+      ...edges.map(edge => ({
+        data: {
+          id: `${edge.source}-${edge.target}-${edge.relation_type}`,
+          source: String(edge.source),
+          target: String(edge.target),
+          relation: edge.relation_type,
+        }
+      }))
+    ];
+
+    const cy = cytoscape({
+      container,
+      elements,
+      style: [
+        {
+          selector: 'node',
+          style: {
+            'background-color': (ele: any) => hashToColor(ele.data('cluster')),
+            label: 'data(label)',
+            color: '#e2e8f0',
+            'text-outline-width': 2,
+            'text-outline-color': '#0f172a',
+            'font-size': 10,
+            'text-max-width': 80,
+            'text-wrap': 'ellipsis',
+          }
+        },
+        {
+          selector: 'edge',
+          style: {
+            width: 1,
+            'line-color': 'rgba(148,163,184,0.35)',
+            'curve-style': 'bezier',
+            'target-arrow-shape': 'triangle',
+            'target-arrow-color': 'rgba(148,163,184,0.4)',
+          }
+        }
+      ],
+      layout: {
+        name: 'fcose',
+        animate: true,
+        randomize: true,
+        nodeSeparation: 80,
+        idealEdgeLength: 140,
+      }
+    });
+
+    setCyInstance(cy);
+    return () => {
+      cy.destroy();
     };
-  });
-  return positions;
+  }, [nodes, edges, isLoading, cyInstance, setCyInstance]);
 }
 
 export default function KnowledgeGraph() {
@@ -34,6 +109,7 @@ export default function KnowledgeGraph() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cyInstance, setCyInstance] = useState<cytoscape.Core | null>(null);
 
   const jobId = selectedKB && !selectedKB.isDefault ? Number(selectedKB.id) : null;
 
@@ -80,9 +156,13 @@ export default function KnowledgeGraph() {
     }
   }, [accessToken, jobId]);
 
-  const positions = useMemo(() => buildCircleLayout(nodes.slice(0, 40)), [nodes]);
-  const renderNodes = nodes.slice(0, 40);
-  const renderEdges = edges.filter(e => positions[e.source] && positions[e.target]).slice(0, 80);
+  const renderNodes = useMemo(() => nodes.slice(0, 200), [nodes]);
+  const renderEdges = useMemo(
+    () => edges.filter(e => renderNodes.find(n => n.id === e.source) && renderNodes.find(n => n.id === e.target)).slice(0, 400),
+    [edges, renderNodes]
+  );
+
+  useCytoscape(renderNodes, renderEdges, isLoading, cyInstance, setCyInstance);
 
   if (authLoading || (!isAuthenticated && !authLoading)) {
     return (
@@ -157,27 +237,11 @@ export default function KnowledgeGraph() {
           <div className="grid grid-cols-2 gap-6">
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="font-semibold text-foreground mb-3">{t('graph.visual')}</h3>
-              <svg width="400" height="400" className="bg-background rounded-lg border border-border">
-                {renderEdges.map((edge, idx) => (
-                  <line
-                    key={`edge-${idx}`}
-                    x1={positions[edge.source].x}
-                    y1={positions[edge.source].y}
-                    x2={positions[edge.target].x}
-                    y2={positions[edge.target].y}
-                    stroke="rgba(148,163,184,0.4)"
-                    strokeWidth="1"
-                  />
-                ))}
-                {renderNodes.map((node) => (
-                  <g key={node.id}>
-                    <circle cx={positions[node.id].x} cy={positions[node.id].y} r="6" fill="#22c55e" />
-                    <text x={positions[node.id].x + 8} y={positions[node.id].y + 3} fill="#cbd5f5" fontSize="10">
-                      {node.name.slice(0, 20)}
-                    </text>
-                  </g>
-                ))}
-              </svg>
+              <div
+                id="graph-view"
+                className="bg-background rounded-lg border border-border"
+                style={{ height: 420 }}
+              />
               <p className="text-xs text-muted-foreground mt-2">
                 {t('graph.visual_note')}
               </p>
@@ -191,7 +255,9 @@ export default function KnowledgeGraph() {
                   nodes.map((node) => (
                     <div key={node.id} className="text-sm text-foreground border border-border rounded-md p-2">
                       <div className="font-medium">{node.name}</div>
-                      <div className="text-xs text-muted-foreground">{node.entity_type}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {node.entity_type}{node.cluster ? ` · ${node.cluster}` : ''}
+                      </div>
                     </div>
                   ))
                 )}

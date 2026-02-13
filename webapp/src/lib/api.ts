@@ -144,6 +144,7 @@ export interface KnowledgeGraphNode {
   id: number;
   name: string;
   entity_type: string;
+  cluster?: string | null;
 }
 
 export interface KnowledgeGraphEdge {

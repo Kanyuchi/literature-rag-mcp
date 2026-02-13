@@ -247,6 +247,7 @@ class KnowledgeEntity(Base):
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False, index=True)
     entity_type = Column(String(50), default="concept")
+    cluster = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -429,6 +430,13 @@ def _run_migrations():
     if not inspector.has_table("knowledge_entities"):
         logger.info("Migrating: creating knowledge_entities table")
         Base.metadata.tables["knowledge_entities"].create(bind=engine)
+    else:
+        columns = [col["name"] for col in inspector.get_columns("knowledge_entities")]
+        if "cluster" not in columns:
+            logger.info("Migrating: adding cluster column to knowledge_entities table")
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE knowledge_entities ADD COLUMN cluster VARCHAR(100)"))
+            logger.info("Migration complete: cluster added")
     if not inspector.has_table("knowledge_edges"):
         logger.info("Migrating: creating knowledge_edges table")
         Base.metadata.tables["knowledge_edges"].create(bind=engine)
@@ -779,17 +787,28 @@ class KnowledgeEntityCRUD:
     """CRUD operations for KnowledgeEntity model."""
 
     @staticmethod
-    def get_or_create(db: Session, job_id: int, name: str, entity_type: str = "concept") -> KnowledgeEntity:
+    def get_or_create(
+        db: Session,
+        job_id: int,
+        name: str,
+        entity_type: str = "concept",
+        cluster: Optional[str] = None
+    ) -> KnowledgeEntity:
         existing = db.query(KnowledgeEntity).filter(
             KnowledgeEntity.job_id == job_id,
             KnowledgeEntity.name == name
         ).first()
         if existing:
+            if cluster and existing.cluster != cluster:
+                existing.cluster = cluster
+                db.commit()
+                db.refresh(existing)
             return existing
         entity = KnowledgeEntity(
             job_id=job_id,
             name=name,
-            entity_type=entity_type
+            entity_type=entity_type,
+            cluster=cluster
         )
         db.add(entity)
         db.commit()

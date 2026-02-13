@@ -287,34 +287,27 @@ export default function Home() {
               ) : null}
             </motion.section>
 
-            {/* Topics & Phases */}
-            {stats && (
-              <motion.section variants={itemVariants} className="mb-12">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <Card className="p-6 bg-card border-border">
-                    <h3 className="text-lg font-semibold text-white mb-4">Topics</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(stats.topics).map(([topic, count]) => (
-                        <Badge key={topic} variant="secondary" className="bg-secondary/50">
-                          {topic} ({count})
-                        </Badge>
-                      ))}
-                    </div>
-                  </Card>
-
-                  <Card className="p-6 bg-card border-border">
-                    <h3 className="text-lg font-semibold text-white mb-4">Phases</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(stats.phases).map(([phase, count]) => (
-                        <Badge key={phase} variant="secondary" className="bg-secondary/50">
-                          {phase} ({count})
-                        </Badge>
-                      ))}
-                    </div>
-                  </Card>
+            {/* Use Cases */}
+            <motion.section variants={itemVariants} className="mb-12">
+              <Card className="p-6 bg-card border-border">
+                <h3 className="text-lg font-semibold text-white mb-2">{t('home.use_cases_title')}</h3>
+                <p className="text-sm text-muted-foreground mb-4">{t('home.use_cases_subtitle')}</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    t('home.use_case_research'),
+                    t('home.use_case_business'),
+                    t('home.use_case_legal'),
+                    t('home.use_case_support'),
+                    t('home.use_case_product'),
+                    t('home.use_case_data'),
+                  ].map((label) => (
+                    <Badge key={label} variant="secondary" className="bg-secondary/50">
+                      {label}
+                    </Badge>
+                  ))}
                 </div>
-              </motion.section>
-            )}
+              </Card>
+            </motion.section>
 
             {/* Call to Action */}
             <motion.section variants={itemVariants} className="mb-12">

@@ -67,7 +67,7 @@ function useCytoscape(
             'text-outline-width': 2,
             'text-outline-color': '#0f172a',
             'font-size': 10,
-            'text-max-width': 80,
+            'text-max-width': '80px',
             'text-wrap': 'ellipsis',
           }
         },
@@ -88,7 +88,7 @@ function useCytoscape(
         randomize: true,
         nodeSeparation: 80,
         idealEdgeLength: 140,
-      }
+      } as any
     });
 
     setCyInstance(cy);

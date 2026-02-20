@@ -1,17 +1,32 @@
 # Virtual environment
 venv/
 .venv/
+.venv*/
 env/
+**/.venv/
+**/.venv*/
+**/venv/
 
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 *.egg-info/
+.pytest_cache/
+**/.pytest_cache/
 dist/
 build/
+*.db
+
+# JavaScript / frontend
+node_modules/
+**/node_modules/
+*.tsbuildinfo
+.vite/
+**/.vite/
 
 # ChromaDB indices (large files)
 indices/

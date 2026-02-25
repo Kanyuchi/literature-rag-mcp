@@ -23,6 +23,8 @@ BASE_HTTPS="https://${DOMAIN}"
 CHECK_PATH="${CHECK_PATH:-/api/healthz}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-15}"
 CURL_RESOLVE_IP="${CURL_RESOLVE_IP:-}"
+OPENSSL_CONNECT_HOST="${OPENSSL_CONNECT_HOST:-${DOMAIN}}"
+OPENSSL_TIMEOUT="${OPENSSL_TIMEOUT:-15}"
 
 failures=0
 
@@ -65,7 +67,11 @@ check_https_health() {
 
 check_tls_certificate() {
   local cert_output not_after
-  cert_output="$(echo | openssl s_client -servername "${DOMAIN}" -connect "${DOMAIN}:443" 2>/dev/null || true)"
+  if command -v timeout >/dev/null 2>&1; then
+    cert_output="$(echo | timeout "${OPENSSL_TIMEOUT}" openssl s_client -servername "${DOMAIN}" -connect "${OPENSSL_CONNECT_HOST}:443" 2>/dev/null || true)"
+  else
+    cert_output="$(echo | openssl s_client -servername "${DOMAIN}" -connect "${OPENSSL_CONNECT_HOST}:443" 2>/dev/null || true)"
+  fi
   if [[ -z "${cert_output}" ]]; then
     fail "Could not fetch TLS certificate from ${DOMAIN}:443"
     return

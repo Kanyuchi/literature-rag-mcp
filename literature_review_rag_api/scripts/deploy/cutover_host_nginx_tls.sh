@@ -78,7 +78,46 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
-    return 301 https://\$host\$request_uri;
+
+    root ${WEB_ROOT};
+    index index.html;
+    client_max_body_size 100m;
+
+    # Temporary compatibility path: keep IP-based access reachable on HTTP
+    # while domain traffic is forced to HTTPS.
+    location = /api/healthz {
+        proxy_pass ${API_UPSTREAM}/healthz;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /api/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 600;
+        proxy_send_timeout 600;
+    }
+
+    location /assets/ {
+        add_header Cache-Control "no-store";
+        try_files \$uri =404;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+        try_files \$uri =404;
+    }
+
+    location / {
+        try_files \$uri /index.html;
+    }
 }
 
 server {

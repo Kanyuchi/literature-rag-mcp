@@ -10,10 +10,15 @@ Address all constraints from the audit with measurable outcomes, clear priority,
   - `DONE`: rate limiting enabled by default
   - `DONE`: operational endpoint restriction (`/health` minimized for public callers)
   - `IN PROGRESS`: strict HTTPS rollout (Nginx redirect/TLS config committed; deployment cert + cutover validation pending)
+  - `DONE`: TLS cutover verification automation script (`scripts/security/verify_tls_cutover.sh`)
 - `Phase 1 / P1`:
   - `IN PROGRESS`: auth policy normalization (matrix documented; regression tests added for auth defaults)
   - `DONE`: optional verified-account enforcement gate (`AUTH_REQUIRE_VERIFIED`) with test coverage
   - `IN PROGRESS`: error response hardening (sanitized validation + 5xx handlers)
+- `Phase 2 / P1`:
+  - `DONE`: added UI-flow backing smoke tests for Jobs create/delete and Dataset terminal states
+- `Cross-cutting`:
+  - `DONE`: endpoint-class rate-limit policies (auth/retrieval/stats) with regression coverage
 
 ## Scope
 - Security vulnerabilities (critical + medium)

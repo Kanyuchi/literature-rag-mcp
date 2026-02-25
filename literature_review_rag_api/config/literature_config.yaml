@@ -319,6 +319,31 @@ api:
     window_seconds: 60  # Time window in seconds
     authenticated_multiplier: 2.0  # Authenticated users get 2x the limit
     burst_multiplier: 1.5  # Allow short bursts up to requests * multiplier
+    # Optional endpoint-specific overrides (first longest matching prefix wins)
+    path_limits:
+      - name: auth
+        prefixes:
+          - "/api/auth/login"
+          - "/api/auth/register"
+          - "/api/auth/refresh"
+        requests: 15
+        window_seconds: 60
+        authenticated_multiplier: 1.0
+      - name: retrieval
+        prefixes:
+          - "/api/search"
+          - "/api/chat"
+          - "/query"
+          - "/context"
+          - "/synthesis"
+          - "/related"
+        requests: 35
+        window_seconds: 60
+      - name: stats
+        prefixes:
+          - "/api/stats"
+        requests: 30
+        window_seconds: 60
 
   # API documentation
   title: "Literature Review RAG API"

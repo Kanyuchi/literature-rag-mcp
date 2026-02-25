@@ -189,6 +189,12 @@ curl -I http://your-domain.com/api/healthz
 curl -I https://your-domain.com/api/healthz
 ```
 
+Run automated cutover verification:
+
+```bash
+./scripts/security/verify_tls_cutover.sh your-domain.com
+```
+
 ## Domain Name Suggestions
 
 Since you need a domain, here are some creative options:

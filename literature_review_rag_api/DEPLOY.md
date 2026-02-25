@@ -119,6 +119,7 @@ CORS_ORIGINS=http://localhost:5173,https://your-frontend-domain.com
 AUTH_COOKIE_SECURE=true
 AUTH_COOKIE_SAMESITE=lax
 ENABLE_HSTS=true
+REQUIRE_HTTPS=true
 ```
 
 Generate a secure JWT secret:
@@ -135,8 +136,8 @@ docker-compose up -d --build
 # Check logs
 docker-compose logs -f api
 
-# Verify it's running
-curl http://localhost:8001/health
+# Verify API is running
+curl http://localhost:8001/healthz
 ```
 
 ## Step 6: Copy Pre-built Index (Optional)
@@ -174,7 +175,18 @@ sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ~/literature_review_
 sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem ~/literature_review_rag_api/literature_review_rag_api/nginx/ssl/
 ```
 
-Then update `nginx/nginx.conf` to enable the HTTPS server block.
+Start Nginx production profile (HTTPS-only reverse proxy):
+
+```bash
+docker-compose --profile production up -d --build nginx certbot
+```
+
+Validate redirect and TLS:
+
+```bash
+curl -I http://your-domain.com/api/healthz
+curl -I https://your-domain.com/api/healthz
+```
 
 ## Domain Name Suggestions
 

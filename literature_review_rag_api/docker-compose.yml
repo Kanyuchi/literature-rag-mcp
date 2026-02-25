@@ -27,6 +27,7 @@ services:
       - AUTH_COOKIE_SAMESITE=${AUTH_COOKIE_SAMESITE:-lax}
       - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:-}
       - ENABLE_HSTS=${ENABLE_HSTS:-true}
+      - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
 
       # API Configuration
       - API_HOST=0.0.0.0

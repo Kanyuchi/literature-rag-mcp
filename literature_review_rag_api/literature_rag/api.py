@@ -15,10 +15,11 @@ from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, status, Depends, Request, UploadFile, File, Form, BackgroundTasks
+from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import APIKeyHeader, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from .literature_rag import LiteratureReviewRAG
 from .config import load_config
@@ -266,10 +267,26 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault("X-XSS-Protection", "0")
 
     enable_hsts = os.getenv("ENABLE_HSTS", "true").lower() in ("true", "1", "yes")
-    if enable_hsts and request.url.scheme == "https":
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    is_https = request.url.scheme == "https" or forwarded_proto == "https"
+    if enable_hsts and is_https:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
     return response
+
+
+@app.middleware("http")
+async def https_enforcement_middleware(request: Request, call_next):
+    """Optionally enforce HTTPS at app layer when running behind a proxy."""
+    require_https = os.getenv("REQUIRE_HTTPS", "false").lower() in ("true", "1", "yes")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    is_https = request.url.scheme == "https" or forwarded_proto == "https"
+
+    if require_https and not is_https:
+        https_url = request.url.replace(scheme="https")
+        return RedirectResponse(url=str(https_url), status_code=status.HTTP_308_PERMANENT_REDIRECT)
+
+    return await call_next(request)
 
 
 def custom_openapi():
@@ -301,6 +318,26 @@ def custom_openapi():
 
 
 app.openapi = custom_openapi
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return sanitized validation errors to avoid leaking internal schema details."""
+    logger.warning(
+        "request_validation_failed",
+        extra={
+            "event": "request_validation_failed",
+            "path": request.url.path,
+            "errors": exc.errors(),
+        }
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": "Invalid request",
+            "detail": "One or more request fields are invalid."
+        }
+    )
 
 # Setup CORS
 app.add_middleware(
@@ -1878,24 +1915,46 @@ async def get_upload_config():
 # ============================================================================
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    """Handle HTTP exceptions."""
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions with sanitized 5xx responses."""
+    if exc.status_code >= 500:
+        logger.error(
+            "http_exception_5xx",
+            extra={
+                "event": "http_exception_5xx",
+                "path": request.url.path,
+                "status_code": exc.status_code,
+                "detail": str(exc.detail),
+            }
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ErrorResponse(error="Internal server error").model_dump(exclude_none=True),
+            headers=exc.headers
+        )
+
+    error_message = exc.detail if isinstance(exc.detail, str) else "Request failed"
     return JSONResponse(
         status_code=exc.status_code,
-        content=ErrorResponse(error=exc.detail).dict()
+        content=ErrorResponse(error=error_message).model_dump(exclude_none=True),
+        headers=exc.headers
     )
 
 
 @app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
-    """Handle general exceptions."""
-    logger.error(f"Unhandled exception: {exc}")
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle general exceptions without exposing internals."""
+    logger.exception(
+        "unhandled_exception",
+        extra={
+            "event": "unhandled_exception",
+            "path": request.url.path,
+            "method": request.method
+        }
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=ErrorResponse(
-            error="Internal server error",
-            detail=str(exc)
-        ).dict()
+        content=ErrorResponse(error="Internal server error").model_dump(exclude_none=True)
     )
 
 

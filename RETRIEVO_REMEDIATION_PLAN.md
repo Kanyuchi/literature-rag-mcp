@@ -3,6 +3,17 @@
 ## Goal
 Address all constraints from the audit with measurable outcomes, clear priority, and explicit acceptance criteria before broader production scaling.
 
+## Progress Snapshot (as of 2026-02-25)
+- `Phase 0 / P0`:
+  - `DONE`: token/cookie hardening (no localStorage persistence, secure HttpOnly cookies)
+  - `DONE`: baseline security headers + server version hardening
+  - `DONE`: rate limiting enabled by default
+  - `DONE`: operational endpoint restriction (`/health` minimized for public callers)
+  - `IN PROGRESS`: strict HTTPS rollout (Nginx redirect/TLS config committed; deployment cert + cutover validation pending)
+- `Phase 1 / P1`:
+  - `IN PROGRESS`: auth policy normalization (matrix documented; regression tests added for auth defaults)
+  - `IN PROGRESS`: error response hardening (sanitized validation + 5xx handlers)
+
 ## Scope
 - Security vulnerabilities (critical + medium)
 - Broken UX/routes and non-functional actions

@@ -15,24 +15,22 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const ACCESS_TOKEN_KEY = 'lit_rag_access_token';
+const COOKIE_SESSION_TOKEN = '__cookie_session__';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserResponse | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Save tokens in memory (cookies are set by the server)
+  // Save access token in memory only (auth cookies are managed by the server).
   const saveTokens = useCallback((tokens: TokenResponse) => {
     setAccessToken(tokens.access_token);
-    localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
   }, []);
 
   // Clear tokens from memory
   const clearTokens = useCallback(() => {
     setAccessToken(null);
     setUser(null);
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
   }, []);
 
   // Fetch current user with token
@@ -67,25 +65,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Initialize auth state on mount
   useEffect(() => {
     const initAuth = async () => {
-      const savedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-      if (savedToken) {
-        setAccessToken(savedToken);
-        const userData = await fetchUser(savedToken);
-        if (userData) {
-          setUser(userData);
-          setIsLoading(false);
-          return;
-        }
+      const userData = await fetchUser();
+      if (userData) {
+        setUser(userData);
+        // Mark cookie-backed session as authenticated for components that still gate on accessToken.
+        setAccessToken(COOKIE_SESSION_TOKEN);
+        setIsLoading(false);
+        return;
       }
 
-      // If there's no saved token, skip refresh to avoid 401 noise for guests.
-      clearTokens();
+      // Try one refresh attempt using HttpOnly refresh cookie before marking guest state.
+      await refreshAuth();
 
       setIsLoading(false);
     };
 
     initAuth();
-  }, [fetchUser, refreshAuth, clearTokens]);
+  }, [fetchUser, refreshAuth]);
 
   // Login with email/password
   const login = useCallback(async (email: string, password: string) => {

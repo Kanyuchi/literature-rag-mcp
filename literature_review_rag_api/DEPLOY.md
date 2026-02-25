@@ -114,6 +114,11 @@ GROQ_API_KEY=your_groq_api_key
 
 # CORS (update with your frontend URL)
 CORS_ORIGINS=http://localhost:5173,https://your-frontend-domain.com
+
+# Security hardening
+AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_SAMESITE=lax
+ENABLE_HSTS=true
 ```
 
 Generate a secure JWT secret:
@@ -268,3 +273,6 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 - [ ] Rotate AWS credentials periodically
 - [ ] Use strong JWT secret
 - [ ] Enable Lightsail automatic snapshots
+- [ ] Serve production traffic over HTTPS only (no plaintext HTTP API exposure)
+- [ ] Verify security headers are present (`X-Frame-Options`, `CSP`, `HSTS`, `Referrer-Policy`)
+- [ ] Confirm auth tokens are not persisted in browser localStorage

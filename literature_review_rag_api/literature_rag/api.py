@@ -12,6 +12,7 @@ import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, status, Depends, Request, UploadFile, File, Form, BackgroundTasks
 from fastapi.openapi.utils import get_openapi
@@ -244,6 +245,33 @@ async def request_context_middleware(request: Request, call_next):
         request_id_ctx.reset(token)
 
 
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Apply baseline security headers to all responses."""
+    response = await call_next(request)
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    )
+    # Keep CSP permissive enough to avoid breaking API docs while still restricting framing/base URI.
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    )
+    # Legacy header expected by some scanners.
+    response.headers.setdefault("X-XSS-Protection", "0")
+
+    enable_hsts = os.getenv("ENABLE_HSTS", "true").lower() in ("true", "1", "yes")
+    if enable_hsts and request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+
+    return response
+
+
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -302,6 +330,34 @@ _CSRF_EXEMPT_PATHS = {
 }
 
 
+def _origin_allowed(request: Request) -> bool:
+    """
+    Validate browser origin for cookie-authenticated unsafe requests.
+
+    Allows:
+    - Non-browser clients without Origin header
+    - Explicitly configured CORS origins
+    - Same-origin requests based on Host header
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+
+    active_config = config if config is not None else config_temp
+    allowed_origins = set(getattr(active_config.api, "cors_origins", []) or [])
+    if origin in allowed_origins:
+        return True
+
+    host = request.headers.get("host")
+    if host:
+        parsed = urlparse(origin)
+        origin_host = parsed.netloc
+        if origin_host == host:
+            return True
+
+    return False
+
+
 @app.middleware("http")
 async def csrf_protection_middleware(request: Request, call_next):
     # Ensure CSRF cookie exists
@@ -315,31 +371,32 @@ async def csrf_protection_middleware(request: Request, call_next):
             # Skip CSRF check if Bearer token auth is used (tokens are CSRF-safe)
             auth_header = request.headers.get("authorization", "")
             if not auth_header.lower().startswith("bearer "):
-                # Only enforce CSRF for cookie-based auth
-                header_token = request.headers.get(_CSRF_HEADER_NAME)
-                if not header_token or header_token != csrf_cookie:
-                    # Include CORS headers in error response
-                    origin = request.headers.get("origin", "")
-                    cors_headers = {}
-                    if origin in config_temp.api.cors_origins:
-                        cors_headers = {
-                            "Access-Control-Allow-Origin": origin,
-                            "Access-Control-Allow-Credentials": "true",
-                        }
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={"error": "CSRF validation failed"},
-                        headers=cors_headers
-                    )
+                has_auth_cookie = bool(
+                    request.cookies.get("access_token") or request.cookies.get("refresh_token")
+                )
+                # Enforce CSRF checks for cookie-authenticated browser requests.
+                if has_auth_cookie:
+                    if not _origin_allowed(request):
+                        return JSONResponse(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            content={"error": "CSRF origin validation failed"}
+                        )
+                    # Optional token consistency check when header is present.
+                    header_token = request.headers.get(_CSRF_HEADER_NAME)
+                    if header_token and header_token != csrf_cookie:
+                        return JSONResponse(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            content={"error": "CSRF token mismatch"}
+                        )
 
     response = await call_next(request)
 
-    # Set CSRF cookie (non-HttpOnly so JS can read)
+    # Set CSRF cookie (HttpOnly to reduce XSS exposure)
     response.set_cookie(
         key=_CSRF_COOKIE_NAME,
         value=csrf_cookie,
-        httponly=False,
-        secure=os.getenv("AUTH_COOKIE_SECURE", "false").lower() in ("true", "1", "yes"),
+        httponly=True,
+        secure=os.getenv("AUTH_COOKIE_SECURE", "true").lower() in ("true", "1", "yes"),
         samesite=os.getenv("AUTH_COOKIE_SAMESITE", "lax"),
         domain=os.getenv("AUTH_COOKIE_DOMAIN") or None,
         path="/"
@@ -461,7 +518,7 @@ async def root():
     }
 
 
-@app.get("/api/stats")
+@app.get("/api/stats", dependencies=[Depends(require_auth_if_configured)])
 async def get_stats():
     """
     Get collection statistics for the webapp dashboard.
@@ -956,8 +1013,13 @@ async def api_synthesis_query(request: SynthesisRequest):
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint with system statistics."""
+async def health_check(current_user: Optional[User] = Depends(get_current_user_optional)):
+    """
+    Health check endpoint.
+
+    Returns only minimal health data to unauthenticated callers.
+    Includes detailed internal stats only for authenticated users.
+    """
     try:
         if rag_system is None:
             return HealthResponse(
@@ -966,21 +1028,25 @@ async def health_check():
                 stats={"error": "RAG system not initialized"}
             )
 
-        stats = rag_system.get_stats()
+        stats: Dict[str, Any] = {}
+        if current_user is not None:
+            stats = rag_system.get_stats()
 
-        # Add pool statistics
-        try:
-            pool_stats = get_pool().get_stats()
-            stats["pool"] = pool_stats
-        except Exception as e:
-            stats["pool"] = {"error": str(e)}
+            # Add pool statistics
+            try:
+                pool_stats = get_pool().get_stats()
+                stats["pool"] = pool_stats
+            except Exception:
+                stats["pool"] = {"error": "pool_stats_unavailable"}
 
-        # Add worker statistics
-        try:
-            worker_stats = get_worker().get_stats()
-            stats["worker"] = worker_stats
-        except Exception as e:
-            stats["worker"] = {"error": str(e)}
+            # Add worker statistics
+            try:
+                worker_stats = get_worker().get_stats()
+                stats["worker"] = worker_stats
+            except Exception:
+                stats["worker"] = {"error": "worker_stats_unavailable"}
+        else:
+            stats = {"scope": "public", "message": "Detailed stats require authentication"}
 
         return HealthResponse(
             status="healthy" if rag_system.is_ready() else "initializing",
@@ -993,7 +1059,7 @@ async def health_check():
         return HealthResponse(
             status="unhealthy",
             ready=False,
-            stats={"error": str(e)}
+            stats={"error": "health_check_failed"}
         )
 
 @app.get("/healthz")

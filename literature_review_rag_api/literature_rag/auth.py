@@ -180,8 +180,8 @@ OAUTH_REDIRECT_URL = os.getenv("OAUTH_REDIRECT_URL", "http://localhost:5173/auth
 # Security scheme for FastAPI
 security = HTTPBearer(auto_error=False)
 
-# Cookie settings (set secure flags via environment in production)
-AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+# Cookie settings (secure-by-default; override for local HTTP development if needed)
+AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "true").lower() in ("true", "1", "yes")
 AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax")  # "lax", "strict", "none"
 AUTH_COOKIE_DOMAIN = os.getenv("AUTH_COOKIE_DOMAIN")  # optional
 

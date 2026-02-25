@@ -420,6 +420,8 @@ export interface JobChatResponse {
 
 class ApiClient {
   private baseUrl: string;
+  private refreshPromise: Promise<boolean> | null = null;
+  private readonly cookieSessionSentinel = '__cookie_session__';
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -430,12 +432,59 @@ class ApiClient {
     return match ? decodeURIComponent(match[1]) : null;
   }
 
-  private async fetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  private shouldAttemptRefresh(endpoint: string): boolean {
+    const authEndpoints = [
+      '/api/auth/login',
+      '/api/auth/register',
+      '/api/auth/refresh',
+      '/api/auth/logout',
+      '/api/auth/oauth/'
+    ];
+    return !authEndpoints.some((prefix) => endpoint.startsWith(prefix));
+  }
+
+  private isLikelyJwt(token: string): boolean {
+    return token.split('.').length === 3;
+  }
+
+  private async refreshSession(): Promise<boolean> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${this.baseUrl}/api/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        return response.ok;
+      } catch {
+        return false;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
+  private async fetch<T>(endpoint: string, options?: RequestInit, allowRefresh: boolean = true): Promise<T> {
     const method = (options?.method || 'GET').toUpperCase();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options?.headers as Record<string, string> | undefined),
     };
+
+    // Avoid overriding secure cookie auth with placeholder/non-JWT bearer tokens.
+    if (headers.Authorization?.startsWith('Bearer ')) {
+      const token = headers.Authorization.slice(7).trim();
+      if (!token || token === this.cookieSessionSentinel || !this.isLikelyJwt(token)) {
+        delete headers.Authorization;
+      }
+    }
 
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       const csrf = this.getCookie('csrf_token');
@@ -449,6 +498,13 @@ class ApiClient {
       ...options,
       headers,
     });
+
+    if (response.status === 401 && allowRefresh && this.shouldAttemptRefresh(endpoint)) {
+      const refreshed = await this.refreshSession();
+      if (refreshed) {
+        return this.fetch<T>(endpoint, options, false);
+      }
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));

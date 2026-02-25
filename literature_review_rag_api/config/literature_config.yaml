@@ -314,8 +314,8 @@ api:
 
   # Rate limiting (per-tenant sliding window)
   rate_limit:
-    enabled: false  # Set to true to enable rate limiting
-    requests: 100   # Max requests per window (anonymous users)
+    enabled: true   # Enabled by default for production safety
+    requests: 60    # Max requests per window (anonymous users)
     window_seconds: 60  # Time window in seconds
     authenticated_multiplier: 2.0  # Authenticated users get 2x the limit
     burst_multiplier: 1.5  # Allow short bursts up to requests * multiplier

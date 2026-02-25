@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './contexts/AuthContext';
@@ -21,6 +21,7 @@ import ModelProviders from './pages/settings/ModelProviders';
 import MCP from './pages/settings/MCP';
 import Team from './pages/settings/Team';
 import Profile from './pages/settings/Profile';
+import NotFound from './pages/NotFound';
 
 // Layout component that conditionally shows MainNav
 function AppLayout({ children }: { children: React.ReactNode }) {
@@ -74,6 +75,13 @@ function App() {
               <Route path="/settings/mcp" element={<MCP />} />
               <Route path="/settings/team" element={<Team />} />
               <Route path="/settings/profile" element={<Profile />} />
+              {/* Legacy route aliases */}
+              <Route path="/settings/knowledge-insights" element={<Navigate to="/insights" replace />} />
+              <Route path="/settings/knowledge-graph" element={<Navigate to="/graph" replace />} />
+              <Route path="/settings/files" element={<Navigate to="/files" replace />} />
+              <Route path="/docs" element={<Navigate to="/api/docs" replace />} />
+              {/* Catch-all fallback */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </AnimatePresence>
         </AppLayout>

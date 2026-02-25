@@ -447,6 +447,16 @@ class ApiClient {
     return token.split('.').length === 3;
   }
 
+  private resolveBearerToken(accessToken?: string): string | null {
+    if (!accessToken || accessToken === this.cookieSessionSentinel) {
+      return null;
+    }
+    if (!this.isLikelyJwt(accessToken)) {
+      return null;
+    }
+    return accessToken;
+  }
+
   private async refreshSession(): Promise<boolean> {
     if (this.refreshPromise) {
       return this.refreshPromise;
@@ -493,11 +503,33 @@ class ApiClient {
       }
     }
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      credentials: 'include',
-      ...options,
-      headers,
-    });
+    const timeoutMs = Number(import.meta.env.VITE_API_TIMEOUT_MS || 20000);
+    const controller = options?.signal ? null : new AbortController();
+    const timeoutId = controller
+      ? window.setTimeout(() => controller.abort(), timeoutMs)
+      : null;
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${endpoint}`, {
+        credentials: 'include',
+        ...options,
+        signal: options?.signal ?? controller?.signal,
+        headers,
+      });
+    } catch (error) {
+      if (controller && timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      throw error;
+    } finally {
+      if (controller && timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    }
 
     if (response.status === 401 && allowRefresh && this.shouldAttemptRefresh(endpoint)) {
       const refreshed = await this.refreshSession();
@@ -647,8 +679,9 @@ class ApiClient {
       if (csrf) {
         xhr.setRequestHeader('X-CSRF-Token', csrf);
       }
-      if (accessToken) {
-        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+      const bearer = this.resolveBearerToken(accessToken);
+      if (bearer) {
+        xhr.setRequestHeader('Authorization', `Bearer ${bearer}`);
       }
       xhr.send(formData);
     });
@@ -675,8 +708,9 @@ class ApiClient {
   // Delete document
   async deleteDocument(docId: string, accessToken?: string): Promise<DeleteResponse> {
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     const response = await fetch(`${this.baseUrl}/api/documents/${encodeURIComponent(docId)}`, {
       method: 'DELETE',
@@ -705,8 +739,9 @@ class ApiClient {
     formData.append('topic', topic);
 
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
 
     const response = await fetch(`${this.baseUrl}/api/upload/async`, {
@@ -913,8 +948,9 @@ class ApiClient {
   // Delete a job (soft delete by default, hard_delete=true for permanent)
   async deleteJob(jobId: number, accessToken?: string, hardDelete: boolean = false): Promise<{ message: string }> {
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     const url = hardDelete
       ? `${this.baseUrl}/api/jobs/${jobId}?hard_delete=true`
@@ -934,8 +970,9 @@ class ApiClient {
   // Clear all documents from a job (keeps the job, removes all content)
   async clearJob(jobId: number, accessToken?: string): Promise<{ message: string; documents_deleted: number; chunks_deleted: number }> {
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     const response = await fetch(`${this.baseUrl}/api/jobs/${jobId}/clear`, {
       method: 'POST',
@@ -952,8 +989,9 @@ class ApiClient {
   // Get job statistics
   async getJobStats(jobId: number, accessToken?: string): Promise<JobStats> {
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     return this.fetch(`/api/jobs/${jobId}/stats`, { headers });
   }
@@ -1034,8 +1072,9 @@ class ApiClient {
     accessToken?: string
   ): Promise<{ message: string; chunks_deleted: number }> {
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     const response = await fetch(
       `${this.baseUrl}/api/jobs/${jobId}/documents/${encodeURIComponent(docId)}`,
@@ -1272,8 +1311,9 @@ class ApiClient {
     accessToken?: string
   ): Promise<Blob> {
     const headers: Record<string, string> = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
+    const bearer = this.resolveBearerToken(accessToken);
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
     }
     const response = await fetch(`${this.baseUrl}/api/chats/${sessionId}/export?format=${format}`, {
       headers,

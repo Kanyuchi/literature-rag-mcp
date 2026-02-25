@@ -21,6 +21,8 @@ fi
 BASE_HTTP="http://${DOMAIN}"
 BASE_HTTPS="https://${DOMAIN}"
 CHECK_PATH="${CHECK_PATH:-/api/healthz}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-15}"
+CURL_RESOLVE_IP="${CURL_RESOLVE_IP:-}"
 
 failures=0
 
@@ -33,10 +35,16 @@ fail() {
   failures=$((failures + 1))
 }
 
+declare -a CURL_COMMON_OPTS
+CURL_COMMON_OPTS=(-sS --max-time "${CURL_MAX_TIME}")
+if [[ -n "${CURL_RESOLVE_IP}" ]]; then
+  CURL_COMMON_OPTS+=(--resolve "${DOMAIN}:80:${CURL_RESOLVE_IP}" --resolve "${DOMAIN}:443:${CURL_RESOLVE_IP}")
+fi
+
 check_http_redirect() {
   local status location
-  status="$(curl -sS -o /dev/null -w '%{http_code}' "${BASE_HTTP}${CHECK_PATH}")"
-  location="$(curl -sSI "${BASE_HTTP}${CHECK_PATH}" | awk 'tolower($1)=="location:" {print $2}' | tr -d '\r' | head -n1)"
+  status="$(curl "${CURL_COMMON_OPTS[@]}" -o /dev/null -w '%{http_code}' "${BASE_HTTP}${CHECK_PATH}")"
+  location="$(curl "${CURL_COMMON_OPTS[@]}" -I "${BASE_HTTP}${CHECK_PATH}" | awk 'tolower($1)=="location:" {print $2}' | tr -d '\r' | head -n1)"
 
   if [[ "${status}" =~ ^30[1278]$ ]] && [[ "${location}" == https://* ]]; then
     pass "HTTP ${CHECK_PATH} redirects to HTTPS (${status})"
@@ -47,7 +55,7 @@ check_http_redirect() {
 
 check_https_health() {
   local status
-  status="$(curl -sS -o /dev/null -w '%{http_code}' "${BASE_HTTPS}${CHECK_PATH}")"
+  status="$(curl "${CURL_COMMON_OPTS[@]}" -o /dev/null -w '%{http_code}' "${BASE_HTTPS}${CHECK_PATH}")"
   if [[ "${status}" == "200" ]]; then
     pass "HTTPS ${CHECK_PATH} is reachable (200)"
   else
@@ -73,7 +81,7 @@ check_tls_certificate() {
 
 check_security_headers() {
   local headers
-  headers="$(curl -sSI "${BASE_HTTPS}${CHECK_PATH}")"
+  headers="$(curl "${CURL_COMMON_OPTS[@]}" -I "${BASE_HTTPS}${CHECK_PATH}")"
 
   grep -qi '^strict-transport-security:' <<<"${headers}" && pass "HSTS header present" || fail "HSTS header missing"
   grep -qi '^x-content-type-options: *nosniff' <<<"${headers}" && pass "X-Content-Type-Options header present" || fail "X-Content-Type-Options missing"

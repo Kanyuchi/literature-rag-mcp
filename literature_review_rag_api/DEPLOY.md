@@ -176,6 +176,25 @@ sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ~/literature_review_
 sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem ~/literature_review_rag_api/literature_review_rag_api/nginx/ssl/
 ```
 
+### One-command host Nginx TLS cutover (recommended on existing Lightsail hosts)
+```bash
+cd ~/literature_review_rag_api/literature_review_rag_api
+
+# Use your real domain (recommended)
+sudo ./scripts/deploy/cutover_host_nginx_tls.sh your-domain.com you@example.com
+
+# Optional temporary domain if you do not have one yet
+# (maps to your server IP automatically)
+sudo ./scripts/deploy/cutover_host_nginx_tls.sh <your-ip>.sslip.io you@example.com
+```
+
+This helper performs:
+- certificate issuance via Let's Encrypt
+- HTTP -> HTTPS redirect
+- HSTS and security headers
+- `server_tokens off` (version masking)
+- certbot renew hooks for standalone mode
+
 Start Nginx production profile (HTTPS-only reverse proxy):
 
 ```bash

@@ -120,6 +120,7 @@ AUTH_COOKIE_SECURE=true
 AUTH_COOKIE_SAMESITE=lax
 ENABLE_HSTS=true
 REQUIRE_HTTPS=true
+AUTH_REQUIRE_VERIFIED=false
 ```
 
 Generate a secure JWT secret:

@@ -142,3 +142,26 @@ def test_stats_requires_auth_by_default(api_module, client: TestClient, monkeypa
     payload = auth_response.json()
     assert payload["total_chunks"] == 10
     assert payload["total_papers"] == 2
+
+
+def test_unverified_accounts_can_be_blocked_when_policy_enabled(client: TestClient, monkeypatch):
+    monkeypatch.setenv("AUTH_REQUIRE_VERIFIED", "true")
+    email = f"unverified_{uuid.uuid4().hex}@example.com"
+
+    register_response = client.post(
+        "/api/auth/register",
+        json={
+            "email": email,
+            "password": "StrongPass123",
+            "name": "Unverified User",
+        },
+    )
+    assert register_response.status_code == 200
+    token = register_response.json()["access_token"]
+
+    me_response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert me_response.status_code == 403
+    assert me_response.json().get("error") == "Email verification required"

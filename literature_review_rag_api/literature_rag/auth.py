@@ -186,6 +186,11 @@ AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax")  # "lax", "stric
 AUTH_COOKIE_DOMAIN = os.getenv("AUTH_COOKIE_DOMAIN")  # optional
 
 
+def require_verified_accounts() -> bool:
+    """Return whether verified accounts are required for authenticated access."""
+    return os.getenv("AUTH_REQUIRE_VERIFIED", "false").lower() in ("true", "1", "yes")
+
+
 # ============================================================================
 # PASSWORD UTILITIES
 # ============================================================================
@@ -423,6 +428,12 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled"
+        )
+
+    if require_verified_accounts() and not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required"
         )
 
     return user

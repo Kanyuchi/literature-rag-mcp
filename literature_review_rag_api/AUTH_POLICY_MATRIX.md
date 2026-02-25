@@ -28,6 +28,7 @@ This document defines the intended authentication behavior for the Retrievo API.
 ## Security Invariants
 
 - Auth is enabled by default (`auth.require_auth: true`).
+- Optional verification gate can be enabled with `AUTH_REQUIRE_VERIFIED=true`.
 - Tokens are not persisted in browser localStorage.
 - Cookie sessions use HttpOnly cookies.
 - Security and regression tests validate auth defaults and sanitized error behavior.

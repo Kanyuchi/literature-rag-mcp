@@ -12,6 +12,7 @@ Address all constraints from the audit with measurable outcomes, clear priority,
   - `IN PROGRESS`: strict HTTPS rollout (Nginx redirect/TLS config committed; deployment cert + cutover validation pending)
 - `Phase 1 / P1`:
   - `IN PROGRESS`: auth policy normalization (matrix documented; regression tests added for auth defaults)
+  - `DONE`: optional verified-account enforcement gate (`AUTH_REQUIRE_VERIFIED`) with test coverage
   - `IN PROGRESS`: error response hardening (sanitized validation + 5xx handlers)
 
 ## Scope

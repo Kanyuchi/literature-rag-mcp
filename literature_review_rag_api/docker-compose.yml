@@ -28,6 +28,7 @@ services:
       - AUTH_COOKIE_DOMAIN=${AUTH_COOKIE_DOMAIN:-}
       - ENABLE_HSTS=${ENABLE_HSTS:-true}
       - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
+      - AUTH_REQUIRE_VERIFIED=${AUTH_REQUIRE_VERIFIED:-false}
 
       # API Configuration
       - API_HOST=0.0.0.0

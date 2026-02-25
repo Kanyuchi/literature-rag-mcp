@@ -106,6 +106,13 @@ server {
     add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
     add_header X-XSS-Protection "0" always;
 
+    location = /api/healthz {
+        proxy_pass ${API_UPSTREAM}/healthz;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     location /api/ {
         proxy_pass ${API_UPSTREAM};
         proxy_http_version 1.1;
